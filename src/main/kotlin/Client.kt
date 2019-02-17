@@ -57,7 +57,6 @@ private fun todo(client:Socket){
         } else {
             println(echo)
         }
-        println()
     }while (flag)
 
     // 资源释放
