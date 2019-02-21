@@ -1,13 +1,23 @@
 import java.io.BufferedReader
+import java.io.IOException
 import java.io.InputStreamReader
 import java.io.PrintStream
+import java.net.Inet4Address
+import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.nio.ByteBuffer
+
+private const val PORT = 20000
 
 class Server
 
 fun main(args: Array<String>) {
-    val server = ServerSocket(2000);
+    val server = createServerSocket()
+
+    initServerSocket(server)
+
+    server.bind(InetSocketAddress(Inet4Address.getLocalHost(),PORT),50)
 
     println("服务器准备就绪~")
     println("服务端信息:${server.inetAddress} P:${server.localPort}")
@@ -23,38 +33,52 @@ fun main(args: Array<String>) {
     }while (true)
 }
 
+@Throws(IOException::class)
+private fun createServerSocket():ServerSocket{
+    // serverSocket.bind(InetSocketAddress(Inet4Address.getLocalHost(),PORT),50)
+    return ServerSocket()
+}
+
+@Throws(IOException::class)
+private fun initServerSocket(serverSocket: ServerSocket){
+    serverSocket.reuseAddress = true
+    serverSocket.receiveBufferSize = 64 * 1000 * 1000
+    // 设置ServerSocket#accept超时时间
+    // serverSocket.soTimeout = 2000
+    serverSocket.setPerformancePreferences(1,1,1)
+}
+
 /**
  * 客户端消息处理
  */
 private class ClientHandler constructor(private val socket:Socket) : Thread(){
 
-    private var flag = true
-
     override fun run() {
+
         println("新客户端连接：${socket.inetAddress} P：${socket.port}")
 
         try{
-            // 得到打印流，用于数据输出，服务器回送数据使用
-            val socketOutput = PrintStream(socket.getOutputStream())
-            // 得到输出流，用于接收数据
-            val socketInput = BufferedReader(InputStreamReader(socket.getInputStream()))
+            val inputStream = socket.getInputStream()
+            val outputStream = socket.getOutputStream()
 
-            do{
-                // 客户端拿到一条数据
-                val str = socketInput.readLine()
-                if("bye".equals(str,true)){
-                    flag = false
-                    // 回送
-                    socketOutput.println("bye")
-                }else{
-                    // 打印到屏幕上
-                    println(str)
-                    socketOutput.println("回送：${str.length}")
-                }
-            }while (flag)
+            val buffer = ByteArray(256)
+            val readCount = inputStream.read(buffer)
 
-            socketInput.close()
-            socketOutput.close()
+            val byteBuffer = ByteBuffer.wrap(buffer,0,readCount)
+            println("""Byte:${byteBuffer.get()}
+                Short:${byteBuffer.short}
+                Int:${byteBuffer.int}
+                Char:${byteBuffer.char}
+                Boolean:${byteBuffer.get().toInt() == 1}
+                Float:${byteBuffer.float}
+                Double:${byteBuffer.double}
+                String:${String(buffer,byteBuffer.position(),readCount - byteBuffer.position() - 1)}
+            """.trimMargin())
+
+            outputStream.write(buffer,0,readCount)
+            inputStream.close()
+            outputStream.close()
+
         }catch (e:Exception){
             println("连接异常断开")
         }finally {
