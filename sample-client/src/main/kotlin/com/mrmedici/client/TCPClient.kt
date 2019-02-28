@@ -1,17 +1,31 @@
 package client
 
 import client.bean.ServerInfo
-import utils.CloseUtils
+import com.mrmedici.clink.utils.CloseUtils
 import java.io.*
 import java.net.Inet4Address
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketTimeoutException
 
-class TCPClient{
+class TCPClient(private val socket:Socket,
+                private val readHandler:ReadHandler){
+
+    private val printStream = PrintStream(socket.getOutputStream())
+
+    fun exit(){
+        readHandler.exit()
+        CloseUtils.close(printStream)
+        CloseUtils.close(socket)
+    }
+
+    fun send(msg:String){
+        printStream.println(msg)
+    }
+
     companion object {
         @Throws(IOException::class)
-        fun linkWith(info:ServerInfo){
+        fun startWith(info:ServerInfo):TCPClient?{
             val socket = Socket()
 
             // 设置读取超时时间为3秒
@@ -27,45 +41,17 @@ class TCPClient{
             try {
                 val readHandler = ReadHandler(socket.getInputStream())
                 readHandler.start()
-
-                // 发送接收数据
-                write(socket)
-
-                readHandler.exit()
+                return TCPClient(socket,readHandler)
             } catch (e: IOException) {
-                e.printStackTrace()
-                println("异常关闭")
+                println("连接异常")
+                CloseUtils.close(socket)
             }
 
-            socket.close()
-            println("客户端已退出~")
-        }
-
-        private fun write(client:Socket){
-            // 获取键盘输入流
-            val input = BufferedReader(InputStreamReader(System.`in`))
-
-            // 构建Socket输出流，并转换为打印流
-            val outputStream = client.getOutputStream()
-            val socketPrintStream = PrintStream(outputStream)
-
-            do{
-                // 键盘读取一行
-                val str = input.readLine()
-                // 发送到服务器
-                socketPrintStream.println(str)
-
-                if("00bye00".equals(str,true)) {
-                    break
-                }
-            }while (true)
-
-            // 资源释放
-            socketPrintStream.close()
+            return null
         }
     }
 
-    private class ReadHandler(private val inputStream: InputStream) : Thread(){
+    class ReadHandler(private val inputStream: InputStream) : Thread(){
 
         private var done = false
 

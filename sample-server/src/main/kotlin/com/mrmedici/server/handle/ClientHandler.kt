@@ -1,22 +1,26 @@
 package server.handle
 
-import utils.CloseUtils
+import com.mrmedici.clink.utils.CloseUtils
 import java.io.*
 import java.net.Socket
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 class ClientHandler(private val socket: Socket,
-                    private val closeNotify: CloseNotify){
+                    private val clientHandlerCallback: ClientHandlerCallback){
 
     private var readHandler:ClientReadHandler
     private var writeHandler:ClientWriteHandler
+    private val clientInfo:String
 
     init {
         this.readHandler = ClientReadHandler(socket.getInputStream())
         this.writeHandler = ClientWriteHandler(socket.getOutputStream())
-        println("新客户端连接：${socket.inetAddress} P：${socket.port}")
+        this.clientInfo = "A[${socket.inetAddress}] P[${socket.port}]"
+        println("新客户端连接：$clientInfo")
     }
+
+    fun getClientInfo():String = clientInfo
 
     fun send(str: String) {
         writeHandler.send(str)
@@ -30,12 +34,12 @@ class ClientHandler(private val socket: Socket,
         readHandler.exit()
         writeHandler.exit()
         CloseUtils.close(socket)
-        println("客户端已退出：${socket.inetAddress} P：${socket.localPort}")
+        println("客户端已退出：${socket.inetAddress} P：${socket.port}")
     }
 
     fun exitBySelf(){
         exit()
-        closeNotify.onSelfClosed(this)
+        clientHandlerCallback.onSelfClosed(this)
     }
 
     inner class ClientReadHandler(private val inputStream:InputStream) : Thread(){
@@ -56,8 +60,9 @@ class ClientHandler(private val socket: Socket,
                         this@ClientHandler.exitBySelf()
                         break
                     }
-                    // 打印到屏幕
-                    println(str)
+
+                    // 通知到TcpServer
+                    clientHandlerCallback.onNewMessageArrived(this@ClientHandler,str)
                 }while (!done)
 
             }catch (e:Exception){
@@ -84,6 +89,7 @@ class ClientHandler(private val socket: Socket,
         private val executorService:ExecutorService = Executors.newSingleThreadExecutor()
 
         fun send(str: String) {
+            if(done) return
             executorService.execute(WriteRunnable(str))
         }
 
@@ -110,6 +116,7 @@ class ClientHandler(private val socket: Socket,
     }
 }
 
-interface CloseNotify{
+interface ClientHandlerCallback {
     fun onSelfClosed(clientHandler: ClientHandler)
+    fun onNewMessageArrived(clientHandler: ClientHandler,msg:String)
 }

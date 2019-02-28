@@ -1,4 +1,4 @@
-package utils
+package com.mrmedici.clink.utils
 
 class ByteUtils{
     companion object {

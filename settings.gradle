@@ -1,2 +1,6 @@
 rootProject.name = 'SocketIm'
+include 'lib-clink'
+include 'sample-foo'
+include 'sample-client'
+include 'sample-server'
 

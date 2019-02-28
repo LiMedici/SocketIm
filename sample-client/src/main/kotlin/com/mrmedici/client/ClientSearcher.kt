@@ -1,8 +1,8 @@
 package client
 
 import client.bean.ServerInfo
+import com.mrmedici.foo.extensions.startWith
 import constants.UDPConstants
-import extensions.startWith
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
@@ -85,14 +85,16 @@ class ClientSearcher{
         private var ds:DatagramSocket ?= null
 
         override fun run() {
-            // 通知已启动
-            startDownLatch.countDown()
+            // 通知已启动 可能发广播已经回来，可这时候还没有去监听回送端口
+            // startDownLatch.countDown()
 
             try {
                 // 监听回送端口
                 ds = DatagramSocket(listenPort)
                 // 构建接收实体
                 val receivePacket = DatagramPacket(buffer, buffer.size)
+
+                startDownLatch.countDown()
 
                 while (!done) {
 

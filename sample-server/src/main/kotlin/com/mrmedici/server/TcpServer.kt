@@ -1,14 +1,15 @@
 package server
 
 import server.handle.ClientHandler
-import server.handle.CloseNotify
+import server.handle.ClientHandlerCallback
 import java.io.IOException
 import java.net.ServerSocket
+import java.util.concurrent.Executors
 
-class TcpServer(private val port:Int){
-
+class TcpServer(private val port:Int) : ClientHandlerCallback{
     private var mListener:ClientListener? = null
     private val clientHandlerList = ArrayList<ClientHandler>()
+    private val forwardingThreadPoolExecutor = Executors.newSingleThreadExecutor()
 
     fun start():Boolean {
         try {
@@ -26,12 +27,33 @@ class TcpServer(private val port:Int){
     fun stop() {
         mListener?.exit()
 
-        clientHandlerList.forEach { it.exit() }
-        clientHandlerList.clear()
+        synchronized(this@TcpServer){
+            clientHandlerList.forEach { it.exit() }
+            clientHandlerList.clear()
+        }
+
+        forwardingThreadPoolExecutor.shutdownNow()
     }
 
+    @Synchronized
     fun broadcast(str: String) {
         clientHandlerList.forEach { it.send(str) }
+    }
+
+    @Synchronized
+    override fun onSelfClosed(clientHandler: ClientHandler) {
+        this@TcpServer.clientHandlerList.remove(clientHandler)
+    }
+
+    override fun onNewMessageArrived(handler: ClientHandler, msg: String) {
+        println("Received-${handler.getClientInfo()}:$msg")
+        forwardingThreadPoolExecutor.execute({
+            synchronized(this@TcpServer){
+                clientHandlerList
+                        .filter { it !== handler }
+                        .forEach { it.send(msg) }
+            }
+        })
     }
 
     private inner class ClientListener(port:Int) : Thread() {
@@ -53,14 +75,13 @@ class TcpServer(private val port:Int){
                     val client = server.accept()
 
                     // 客户端构建异步线程
-                    val clientHandler = ClientHandler(client, object : CloseNotify {
-                        override fun onSelfClosed(clientHandler: ClientHandler) {
-                            this@TcpServer.clientHandlerList.remove(clientHandler)
-                        }
-                    })
+                    val clientHandler = ClientHandler(client, this@TcpServer)
                     // 启动线程
                     clientHandler.readToPrint()
-                    this@TcpServer.clientHandlerList.add(clientHandler)
+                    // 添加同步处理
+                    synchronized(this@TcpServer){
+                        this@TcpServer.clientHandlerList.add(clientHandler)
+                    }
                 }catch (e:IOException){
                     e.printStackTrace()
                 }

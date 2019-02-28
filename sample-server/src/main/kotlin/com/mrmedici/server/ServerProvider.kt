@@ -1,7 +1,7 @@
 package server
 
+import com.mrmedici.foo.extensions.startWith
 import constants.UDPConstants
-import extensions.startWith
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.nio.ByteBuffer

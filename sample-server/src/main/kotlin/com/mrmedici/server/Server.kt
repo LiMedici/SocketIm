@@ -18,7 +18,9 @@ fun main(args: Array<String>) {
     do{
         str = bufferedReader.readLine()
         if(str == null) continue
-        tcpServer.broadcast(str)
+        if(!"00bye00".equals(str,true)) {
+            tcpServer.broadcast(str)
+        }
     }while (!"00bye00".equals(str,true))
 
     ServerProvider.stop()
