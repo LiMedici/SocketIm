@@ -1,10 +1,16 @@
 package server
 
+import com.mrmedici.clink.core.IoContext
+import com.mrmedici.clink.impl.IoSelectorProvider
 import constants.TCPConstants
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
 fun main(args: Array<String>) {
+    IoContext.setup()
+             .ioProvider(IoSelectorProvider())
+             .start()
+
     val tcpServer = TcpServer(TCPConstants.PORT_SERVER)
     val isSucceed = tcpServer.start()
     if(!isSucceed){
@@ -25,4 +31,5 @@ fun main(args: Array<String>) {
 
     ServerProvider.stop()
     tcpServer.stop()
+    IoContext.close()
 }

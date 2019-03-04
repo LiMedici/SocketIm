@@ -15,7 +15,7 @@ fun main(args: Array<String>) {
     var counter = 0
     val tcpClients = ArrayList<TCPClient>()
 
-    for (index in 0 until 100){
+    for (index in 0 until 10){
         try {
             val tcpClient = TCPClient.startWith(info)
             if (tcpClient == null) {

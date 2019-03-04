@@ -1,22 +1,42 @@
 package server.handle
 
+import com.mrmedici.clink.core.Connector
 import com.mrmedici.clink.utils.CloseUtils
 import java.io.*
 import java.net.Socket
+import java.nio.ByteBuffer
+import java.nio.channels.SelectionKey
+import java.nio.channels.Selector
+import java.nio.channels.SocketChannel
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-class ClientHandler(private val socket: Socket,
+class ClientHandler(private val socketChannel: SocketChannel,
                     private val clientHandlerCallback: ClientHandlerCallback){
 
-    private var readHandler:ClientReadHandler
+    private var connector:Connector? = null
     private var writeHandler:ClientWriteHandler
     private val clientInfo:String
 
     init {
-        this.readHandler = ClientReadHandler(socket.getInputStream())
-        this.writeHandler = ClientWriteHandler(socket.getOutputStream())
-        this.clientInfo = "A[${socket.inetAddress}] P[${socket.port}]"
+        connector = object : Connector() {
+            override fun onChannelClosed(channel: SocketChannel) {
+                super.onChannelClosed(channel)
+                exitBySelf()
+            }
+
+            override fun onReceiveNewMessage(str: String) {
+                super.onReceiveNewMessage(str)
+                clientHandlerCallback.onNewMessageArrived(this@ClientHandler,str)
+            }
+        }
+        connector?.setup(socketChannel)
+
+        val writeSelector = Selector.open()
+        socketChannel.register(writeSelector,SelectionKey.OP_WRITE)
+        this.writeHandler = ClientWriteHandler(writeSelector)
+
+        this.clientInfo = socketChannel.remoteAddress.toString()
         println("新客户端连接：$clientInfo")
     }
 
@@ -26,15 +46,11 @@ class ClientHandler(private val socket: Socket,
         writeHandler.send(str)
     }
 
-    fun readToPrint() {
-        readHandler.start()
-    }
-
     fun exit(){
-        readHandler.exit()
+        CloseUtils.close(connector!!)
         writeHandler.exit()
-        CloseUtils.close(socket)
-        println("客户端已退出：${socket.inetAddress} P：${socket.port}")
+        CloseUtils.close(socketChannel)
+        println("客户端已退出：$clientInfo")
     }
 
     fun exitBySelf(){
@@ -42,50 +58,10 @@ class ClientHandler(private val socket: Socket,
         clientHandlerCallback.onSelfClosed(this)
     }
 
-    inner class ClientReadHandler(private val inputStream:InputStream) : Thread(){
+    inner class ClientWriteHandler(private val selector: Selector){
 
         private var done = false
-
-        override fun run() {
-
-            try{
-                // 得到输入流，用于接收数据
-                val socketInput = BufferedReader(InputStreamReader(inputStream))
-
-                do{
-                    val str = socketInput.readLine()
-                    if(str == null){
-                        println("客户端已无法读取数据！")
-                        // 退出当前客户端
-                        this@ClientHandler.exitBySelf()
-                        break
-                    }
-
-                    // 通知到TcpServer
-                    clientHandlerCallback.onNewMessageArrived(this@ClientHandler,str)
-                }while (!done)
-
-            }catch (e:Exception){
-                if(!done) {
-                    println("连接异常断开")
-                    this@ClientHandler.exitBySelf()
-                }
-            }finally {
-                // 连接关闭
-                CloseUtils.close(inputStream)
-            }
-        }
-
-        fun exit(){
-            done = true
-            CloseUtils.close(inputStream)
-        }
-    }
-
-    inner class ClientWriteHandler(outputStream:OutputStream){
-
-        private var done = false
-        private val printStream:PrintStream = PrintStream(outputStream)
+        private val byteBuffer = ByteBuffer.allocate(256)
         private val executorService:ExecutorService = Executors.newSingleThreadExecutor()
 
         fun send(str: String) {
@@ -95,19 +71,36 @@ class ClientHandler(private val socket: Socket,
 
         fun exit(){
             done = true
-            CloseUtils.close(printStream)
+            CloseUtils.close(selector)
             executorService.shutdownNow()
         }
 
-        inner class WriteRunnable(private val msg:String) : Runnable{
+        inner class WriteRunnable(private var msg:String) : Runnable{
+
+            init {
+                // 添加换行符
+                msg += "\n"
+            }
 
             override fun run() {
                 if(this@ClientWriteHandler.done){
                     return
                 }
 
+                byteBuffer.clear()
+                byteBuffer.put(msg.toByteArray())
+                // 反转操作,重点
+                byteBuffer.flip()
                 try {
-                    this@ClientWriteHandler.printStream.println(msg)
+                    while (!done && byteBuffer.hasRemaining()){
+                        val len = socketChannel.write(byteBuffer)
+                        if(len < 0){
+                            println("客户端已无法接收数据！")
+                            // 退出当前客户端
+                            this@ClientHandler.exitBySelf()
+                            break
+                        }
+                    }
                 }catch (e:Exception){
                     e.printStackTrace()
                 }

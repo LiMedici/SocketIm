@@ -32,7 +32,7 @@ private fun write(client:TCPClient){
 
     do{
         // 键盘读取一行
-        val str = input.readLine()
+        val str:String = input.readLine()
         // 发送到服务器
         client.send(str)
 

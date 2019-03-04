@@ -62,7 +62,7 @@ class TCPClient(private val socket:Socket,
                 val socketInput = BufferedReader(InputStreamReader(inputStream))
 
                 do{
-                    var str:String
+                    var str:String?
 
                     try {
                         str = socketInput.readLine()
