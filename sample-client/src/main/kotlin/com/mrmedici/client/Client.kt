@@ -1,10 +1,16 @@
 package client
 
+import com.mrmedici.clink.core.IoContext
+import com.mrmedici.clink.impl.IoSelectorProvider
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
 
 fun main(args: Array<String>) {
+    IoContext.setup()
+            .ioProvider(IoSelectorProvider())
+            .start()
+
     val info = ClientSearcher.searchServer(10000)
     println("Server:$info")
 
@@ -23,6 +29,8 @@ fun main(args: Array<String>) {
             tcpClient?.exit()
         }
     }
+
+    IoContext.close()
 }
 
 @Throws(IOException::class)
@@ -34,6 +42,9 @@ private fun write(client:TCPClient){
         // 键盘读取一行
         val str:String = input.readLine()
         // 发送到服务器
+        client.send(str)
+        client.send(str)
+        client.send(str)
         client.send(str)
 
         if("00bye00".equals(str,true)) {

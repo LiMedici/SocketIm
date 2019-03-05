@@ -29,6 +29,10 @@ interface IoProvider : Closeable{
             this.attach = attach
         }
 
+        fun <T> getAttach(): T? {
+            return this.attach as T
+        }
+
         abstract fun canProviderOutput(attach:Any?)
     }
 }

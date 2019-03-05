@@ -16,6 +16,8 @@ class SocketChannelAdapter(private val channel: SocketChannel,
     private var receiveIoEventListener:IoArgsEventListener? = null
     private var sendIoEventListener:IoArgsEventListener? = null
 
+    private var receiveArgs:IoArgs? = null
+
     init {
         channel.configureBlocking(false)
     }
@@ -31,12 +33,16 @@ class SocketChannelAdapter(private val channel: SocketChannel,
         return ioProvider.registerOutput(channel, outputCallback)
     }
 
-    override fun receiveAsync(listener: IoArgsEventListener): Boolean {
+    override fun setReceiveListener(listener: IoArgsEventListener) {
+        this.receiveIoEventListener = listener
+    }
+
+    override fun receiveAsync(args: IoArgs): Boolean {
         if(isClosed.get()){
             throw IOException("Current channel is closed")
         }
 
-        this.receiveIoEventListener = listener
+        this.receiveArgs = args
 
         return ioProvider.registerInput(channel, inputCallback)
     }
@@ -61,21 +67,23 @@ class SocketChannelAdapter(private val channel: SocketChannel,
                 return
             }
 
-            val args = IoArgs()
+            val args = receiveArgs
             val listener = this@SocketChannelAdapter.receiveIoEventListener
 
-            listener?.onStarted(args)
+            if(listener != null && args != null) {
+                listener.onStarted(args)
 
-            try{
-                // 具体的读取操作
-                if(args.read(channel) > 0){
-                    // 读取完成回调
-                    listener?.onCompleted(args)
-                }else{
-                    throw IOException("Cannot read any data!")
+                try {
+                    // 具体的读取操作
+                    if (args.readFrom(channel) > 0) {
+                        // 读取完成回调
+                        listener?.onCompleted(args)
+                    } else {
+                        throw IOException("Cannot read any data!")
+                    }
+                } catch (ignored: IOException) {
+                    CloseUtils.close(this@SocketChannelAdapter)
                 }
-            }catch (ignored:IOException){
-                CloseUtils.close(this@SocketChannelAdapter)
             }
         }
     }
@@ -85,7 +93,26 @@ class SocketChannelAdapter(private val channel: SocketChannel,
             if(isClosed.get()){
                 return
             }
-            this@SocketChannelAdapter.sendIoEventListener?.onCompleted(null!!)
+
+            val args = getAttach<IoArgs>()
+            val listener = this@SocketChannelAdapter.sendIoEventListener
+
+
+            if(args != null && listener != null){
+                listener.onStarted(args)
+
+                try{
+                    // 具体的写入操作
+                    if(args.writeTo(channel) > 0){
+                        // 读取完成回调
+                        listener.onCompleted(args)
+                    }else {
+                        throw IOException("Cannot write any data!")
+                    }
+                }catch (ignored:IOException){
+                    CloseUtils.close(this@SocketChannelAdapter)
+                }
+            }
         }
     }
 }

@@ -4,6 +4,9 @@ import java.io.Closeable
 import java.io.IOException
 
 interface Receiver : Closeable{
+
+    fun setReceiveListener(listener: IoArgsEventListener)
+
     @Throws(IOException::class)
-    fun receiveAsync(listener: IoArgsEventListener):Boolean
+    fun receiveAsync(args: IoArgs):Boolean
 }
