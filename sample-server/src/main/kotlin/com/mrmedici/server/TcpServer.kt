@@ -71,13 +71,13 @@ class TcpServer(private val port:Int) : ClientHandlerCallback{
     }
 
     override fun onNewMessageArrived(handler: ClientHandler, msg: String) {
-        forwardingThreadPoolExecutor.execute({
+        forwardingThreadPoolExecutor.execute {
             synchronized(this@TcpServer){
                 clientHandlerList
                         .filter { it !== handler }
                         .forEach { it.send(msg) }
             }
-        })
+        }
     }
 
     private inner class ClientListener : Thread() {
