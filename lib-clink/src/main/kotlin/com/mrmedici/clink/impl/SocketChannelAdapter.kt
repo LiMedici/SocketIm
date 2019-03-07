@@ -13,36 +13,35 @@ class SocketChannelAdapter(private val channel: SocketChannel,
 
     private val isClosed = AtomicBoolean(false)
 
-    private var receiveIoEventListener:IoArgsEventListener? = null
-    private var sendIoEventListener:IoArgsEventListener? = null
-
-    private var receiveArgs:IoArgs? = null
+    private var receiveIoEventProcessor:IoArgsEventProcessor? = null
+    private var sendIoEventLisProcessor:IoArgsEventProcessor? = null
 
     init {
         channel.configureBlocking(false)
     }
 
-    override fun sendAsync(args: IoArgs, listener: IoArgsEventListener): Boolean {
+    override fun setReceiveListener(processor: IoArgsEventProcessor) {
+        this.receiveIoEventProcessor = processor
+    }
+
+    override fun setSendListener(processor: IoArgsEventProcessor) {
+        this.sendIoEventLisProcessor = processor
+    }
+
+    @Throws(IOException::class)
+    override fun postSendAsync(): Boolean {
         if(isClosed.get()){
             throw IOException("Current channel is closed")
         }
 
-        this.sendIoEventListener = listener
-        // 当前发送的数据附加到回调中
-        outputCallback.setAttach(args)
         return ioProvider.registerOutput(channel, outputCallback)
     }
 
-    override fun setReceiveListener(listener: IoArgsEventListener) {
-        this.receiveIoEventListener = listener
-    }
-
-    override fun receiveAsync(args: IoArgs): Boolean {
+    @Throws(IOException::class)
+    override fun postReceiveAsync(): Boolean {
         if(isClosed.get()){
             throw IOException("Current channel is closed")
         }
-
-        this.receiveArgs = args
 
         return ioProvider.registerInput(channel, inputCallback)
     }
@@ -67,19 +66,18 @@ class SocketChannelAdapter(private val channel: SocketChannel,
                 return
             }
 
-            val args = receiveArgs
-            val listener = this@SocketChannelAdapter.receiveIoEventListener
+            val processor = this@SocketChannelAdapter.receiveIoEventProcessor
 
-            if(listener != null && args != null) {
-                listener.onStarted(args)
+            processor?.let {
+                val args = it.provideIoArgs()
 
                 try {
                     // 具体的读取操作
                     if (args.readFrom(channel) > 0) {
                         // 读取完成回调
-                        listener?.onCompleted(args)
+                        it?.onConsumerCompleted(args)
                     } else {
-                        throw IOException("Cannot read any data!")
+                        it?.onConsumerFailed(args,IOException("Cannot read any data!"))
                     }
                 } catch (ignored: IOException) {
                     CloseUtils.close(this@SocketChannelAdapter)
@@ -89,30 +87,29 @@ class SocketChannelAdapter(private val channel: SocketChannel,
     }
 
     private val outputCallback:IoProvider.HandleOutputCallback = object : IoProvider.HandleOutputCallback(){
-        override fun canProviderOutput(attach: Any?) {
+        override fun canProviderOutput() {
             if(isClosed.get()){
                 return
             }
 
-            val args = getAttach<IoArgs>()
-            val listener = this@SocketChannelAdapter.sendIoEventListener
+            val processor = this@SocketChannelAdapter.sendIoEventLisProcessor
 
-
-            if(args != null && listener != null){
-                listener.onStarted(args)
+            processor?.let {
+                val args = it.provideIoArgs()
 
                 try{
                     // 具体的写入操作
                     if(args.writeTo(channel) > 0){
                         // 读取完成回调
-                        listener.onCompleted(args)
+                        it.onConsumerCompleted(args)
                     }else {
-                        throw IOException("Cannot write any data!")
+                        it.onConsumerFailed(args,IOException("Cannot write any data!"))
                     }
                 }catch (ignored:IOException){
                     CloseUtils.close(this@SocketChannelAdapter)
                 }
             }
+
         }
     }
 }

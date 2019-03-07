@@ -12,7 +12,7 @@ interface ReceiveDispatcher : Closeable{
     fun stop()
 
     interface ReceivePacketCallback{
-        fun onReceivePacketCompleted(packet:ReceivePacket)
+        fun onReceivePacketCompleted(packet:ReceivePacket<*>)
     }
 
 }

@@ -1,23 +1,24 @@
 package com.mrmedici.clink.box
 
 import com.mrmedici.clink.core.ReceivePacket
+import java.io.ByteArrayOutputStream
 
-class StringReceivePacket(len:Int) : ReceivePacket(){
-    private val buffer:ByteArray = ByteArray(len)
-    private var position:Int = 0
+class StringReceivePacket(length:Long) : ReceivePacket<ByteArrayOutputStream>(){
+
+    private var  string:String? = null
 
     init {
-        this.length = len
+        this.length = length
     }
 
-    override fun save(bytes: ByteArray, count: Int) {
-        System.arraycopy(bytes,0,buffer,position,count)
-        position += count
+    fun string():String? = string
+
+    override fun closeStream(stream:ByteArrayOutputStream) {
+        super.closeStream(stream)
+        string = String(stream.toByteArray())
     }
 
-    fun string():String = String(buffer)
-
-    override fun close() {
-
+    override fun createStream(): ByteArrayOutputStream {
+        return ByteArrayOutputStream(length.toInt())
     }
 }

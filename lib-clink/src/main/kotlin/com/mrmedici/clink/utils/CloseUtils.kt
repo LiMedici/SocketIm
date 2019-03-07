@@ -5,9 +5,11 @@ import java.io.IOException
 
 class CloseUtils{
     companion object {
-        fun close(vararg closeables:Closeable){
+        fun close(vararg closeables:Closeable?){
             try {
-                closeables.forEach { it.close() }
+                closeables.forEach {
+                    it?.close()
+                }
             }catch (e:IOException){
                 e.printStackTrace()
             }

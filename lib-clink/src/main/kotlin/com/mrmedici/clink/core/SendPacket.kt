@@ -1,12 +1,15 @@
 package com.mrmedici.clink.core
 
+import java.io.ByteArrayInputStream
+import java.io.IOException
+import java.io.InputStream
+
 /**
  * 发送包定义
  */
-abstract class SendPacket : Packet(){
-    private var isCanceled:Boolean = false
+abstract class SendPacket<T : InputStream> : Packet<T>(){
 
-    abstract fun bytes():ByteArray
+    private var isCanceled:Boolean = false
 
     fun isCanceled():Boolean{
         return isCanceled

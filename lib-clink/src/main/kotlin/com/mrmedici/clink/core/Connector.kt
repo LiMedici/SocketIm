@@ -57,11 +57,13 @@ open class Connector : OnChannelStatusChangedListener,Closeable{
     }
 
     private val receivePacketCallback = object : ReceiveDispatcher.ReceivePacketCallback{
-        override fun onReceivePacketCompleted(packet: ReceivePacket) {
+        override fun onReceivePacketCompleted(packet: ReceivePacket<*>) {
             when(packet){
                 is StringReceivePacket -> {
-                    val msg = packet.string()
-                    onReceiveNewMessage(msg)
+                    val msg:String? = packet.string()
+                    msg?.let {
+                        onReceiveNewMessage(it)
+                    }
                 }
             }
         }

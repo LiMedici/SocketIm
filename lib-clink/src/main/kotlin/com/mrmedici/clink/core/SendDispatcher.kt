@@ -12,10 +12,10 @@ interface SendDispatcher : Closeable{
      * 发送一份数据
      * @param packet 数据
      */
-    fun send(packet:SendPacket)
+    fun send(packet:SendPacket<*>)
     /**
      * 取消发送数据
      * @param packet 数据
      */
-    fun cancel(packet:SendPacket)
+    fun cancel(packet:SendPacket<*>)
 }

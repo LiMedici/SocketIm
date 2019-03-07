@@ -4,37 +4,24 @@ import com.mrmedici.clink.box.StringReceivePacket
 import com.mrmedici.clink.core.*
 import com.mrmedici.clink.utils.CloseUtils
 import java.io.IOException
+import java.nio.channels.Channels
+import java.nio.channels.WritableByteChannel
 import java.util.concurrent.atomic.AtomicBoolean
 
 class AsyncReceiveDispatcher(private val receiver:Receiver,
-                             private val callback:ReceiveDispatcher.ReceivePacketCallback) : ReceiveDispatcher{
-
-    private val ioArgsEventListener = object : IoArgsEventListener{
-        override fun onStarted(args: IoArgs) {
-            var receiveSize = if(receivePacket == null) 4
-            else Math.min(total - position,args.capacity())
-            // 设置本次接收数据大小
-            args.limit(receiveSize)
-        }
-
-        override fun onCompleted(args: IoArgs) {
-            assemblePacket(args)
-            // 继续接收下一条数据
-            registerReceive()
-        }
-    }
+                             private val callback:ReceiveDispatcher.ReceivePacketCallback) : ReceiveDispatcher,IoArgsEventProcessor{
 
     private val isClosed = AtomicBoolean(false)
 
     private val ioArgs = IoArgs()
-    private var receivePacket:ReceivePacket? = null
-    private var buffer:ByteArray? = null
-    private var total:Int = 0
-    private var position:Int = 0
+    private var receivePacket:ReceivePacket<*>? = null
+    private var packetChannel:WritableByteChannel? = null
+    private var total:Long = 0
+    private var position:Long = 0
 
 
     init {
-        receiver.setReceiveListener(ioArgsEventListener)
+        receiver.setReceiveListener(this)
     }
 
 
@@ -48,11 +35,7 @@ class AsyncReceiveDispatcher(private val receiver:Receiver,
 
     override fun close() {
         if(isClosed.compareAndSet(false,true)){
-            val packet = receivePacket
-            if(packet != null){
-                receivePacket = null
-                CloseUtils.close(packet)
-            }
+            completePacket(false)
         }
     }
 
@@ -62,7 +45,7 @@ class AsyncReceiveDispatcher(private val receiver:Receiver,
 
     private fun registerReceive(){
         try {
-            receiver.receiveAsync(ioArgs)
+            receiver.postReceiveAsync()
         }catch (e:IOException){
             closeAndNotify()
         }
@@ -74,33 +57,59 @@ class AsyncReceiveDispatcher(private val receiver:Receiver,
     private fun assemblePacket(args: IoArgs){
         if(receivePacket == null){
             val length = args.readLength()
-            receivePacket = StringReceivePacket(length)
-            buffer = ByteArray(length)
-            total = length
+            receivePacket = StringReceivePacket(length.toLong())
+            packetChannel = Channels.newChannel(receivePacket!!.open())
+            total = length.toLong()
             position = 0
         }
 
-        val count = args.readTo(buffer!!,0)
-        if(count > 0 && receivePacket != null){
-            receivePacket!!.save(buffer!!,count)
+        try{
+            val count = args.readTo(packetChannel!!)
             position += count
-
             // 检查是否已完成一份Packet接收
             if(position == total){
-                completePacket()
-                receivePacket = null
+                completePacket(true)
             }
+
+        }catch (e:IOException){
+            e.printStackTrace()
+            completePacket(false)
         }
     }
 
     /**
      * 完成数据接收操作
      */
-    private fun completePacket() {
-        val packet = receivePacket
+    private fun completePacket(isCucceed:Boolean) {
+        val packet:ReceivePacket<*>? = this.receivePacket
+        CloseUtils.close(packet)
+        receivePacket = null
+
+
+        val channel:WritableByteChannel? = this.packetChannel
+        CloseUtils.close(channel)
+        packetChannel = null
+
         packet?.let {
-            CloseUtils.close(it)
             callback.onReceivePacketCompleted(it)
         }
+    }
+
+    override fun provideIoArgs(): IoArgs {
+        val args = ioArgs
+        var receiveSize = if(receivePacket == null) 4
+        else Math.min(total - position,args.capacity().toLong()).toInt()
+        // 设置本次接收数据大小
+        args.limit(receiveSize)
+        return args
+    }
+
+    override fun onConsumerFailed(args: IoArgs, e: Exception) {
+        e.printStackTrace()
+    }
+
+    override fun onConsumerCompleted(args: IoArgs) {
+        assemblePacket(args)
+        registerReceive()
     }
 }

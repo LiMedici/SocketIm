@@ -19,20 +19,10 @@ interface IoProvider : Closeable{
 
     abstract class HandleOutputCallback : Runnable{
 
-        private var attach:Any? = null
-
         override fun run() {
-            canProviderOutput(attach)
+            canProviderOutput()
         }
 
-        fun setAttach(attach: Any){
-            this.attach = attach
-        }
-
-        fun <T> getAttach(): T? {
-            return this.attach as T
-        }
-
-        abstract fun canProviderOutput(attach:Any?)
+        abstract fun canProviderOutput()
     }
 }
