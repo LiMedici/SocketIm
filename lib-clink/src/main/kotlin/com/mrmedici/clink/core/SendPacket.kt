@@ -7,7 +7,7 @@ import java.io.InputStream
 /**
  * 发送包定义
  */
-abstract class SendPacket<T : InputStream> : Packet<T>(){
+abstract class SendPacket<Stream : InputStream> : Packet<Stream>(){
 
     private var isCanceled:Boolean = false
 

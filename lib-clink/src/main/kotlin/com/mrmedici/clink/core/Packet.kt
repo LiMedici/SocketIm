@@ -8,27 +8,45 @@ import java.io.InputStream
  * 公共的数据封装
  * 提供了类型以及基本的长度的定义
  */
-abstract class Packet<T : Closeable> : Closeable{
+// BYTES 类型
+const val TYPE_MEMORY_BYTES:Byte = 1
+// String 类型
+const val TYPE_MEMORY_STRING:Byte = 2
+// 文件 类型
+const val TYPE_STREAM_FILE:Byte = 3
+// 长链接流 类型
+const val TYPE_STREAM_DIRECT:Byte = 4
 
-    protected open var type:Byte = 0
+
+abstract class Packet<Stream : Closeable> : Closeable{
+
+
     protected open var length:Long = 0
-    private var stream:T? = null
+    private var stream:Stream? = null
 
-    fun type():Byte = type
     fun length():Long = length
 
-    fun open(): T {
+    fun open(): Stream {
         if(stream == null){
             stream = createStream()
         }
 
-        return stream as T
+        return stream as Stream
     }
 
-    protected abstract fun createStream():T
+    /**
+     * 类型，直接通过方法得到
+     * {@link #TYPE_MEMORY_BYTES}
+     * {@link #TYPE_MEMORY_STRING}
+     * {@link #TYPE_STREAM_FILE}
+     * {@link #TYPE_STREAM_DIRECT}
+     */
+    abstract fun type():Byte
+
+    protected abstract fun createStream():Stream
 
     @Throws(IOException::class)
-    protected open fun closeStream(stream:T){
+    protected open fun closeStream(stream:Stream){
         stream?.close()
     }
 

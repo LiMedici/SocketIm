@@ -1,5 +1,7 @@
 package com.mrmedici.clink.core
 
+import com.mrmedici.clink.box.BytesReceivePacket
+import com.mrmedici.clink.box.FileReceivePacket
 import com.mrmedici.clink.box.StringReceivePacket
 import com.mrmedici.clink.box.StringSendPacket
 import com.mrmedici.clink.impl.OnChannelStatusChangedListener
@@ -7,12 +9,13 @@ import com.mrmedici.clink.impl.SocketChannelAdapter
 import com.mrmedici.clink.impl.async.AsyncReceiveDispatcher
 import com.mrmedici.clink.impl.async.AsyncSendDispatcher
 import java.io.Closeable
+import java.io.File
 import java.io.IOException
 import java.nio.channels.SocketChannel
 import java.util.*
 
-open class Connector : OnChannelStatusChangedListener,Closeable{
-    private val key = UUID.randomUUID()
+abstract class Connector : OnChannelStatusChangedListener,Closeable{
+    protected val key = UUID.randomUUID()!!
     private var channel:SocketChannel? = null
     private var sender:Sender? = null
     private var receiver:Receiver? = null
@@ -42,6 +45,10 @@ open class Connector : OnChannelStatusChangedListener,Closeable{
         sendDispatcher?.send(packet)
     }
 
+    fun send(packet:SendPacket<*>){
+        sendDispatcher?.send(packet)
+    }
+
     override fun onChannelClosed(channel: SocketChannel) {
 
     }
@@ -56,20 +63,26 @@ open class Connector : OnChannelStatusChangedListener,Closeable{
         channel?.close()
     }
 
+    protected abstract fun createNewReceiveFile(): File
+
     private val receivePacketCallback = object : ReceiveDispatcher.ReceivePacketCallback{
-        override fun onReceivePacketCompleted(packet: ReceivePacket<*>) {
-            when(packet){
-                is StringReceivePacket -> {
-                    val msg:String? = packet.string()
-                    msg?.let {
-                        onReceiveNewMessage(it)
-                    }
-                }
+
+        override fun onArrivedNewPacket(type: Byte, length: Long): ReceivePacket<*,*> {
+            return when(type){
+                TYPE_MEMORY_BYTES -> BytesReceivePacket(length)
+                TYPE_MEMORY_STRING -> StringReceivePacket(length)
+                TYPE_STREAM_FILE -> FileReceivePacket(length,createNewReceiveFile())
+                TYPE_STREAM_DIRECT -> BytesReceivePacket(length)
+                else -> throw UnsupportedOperationException("Unsupported packet type:$type")
             }
+        }
+
+        override fun onReceivePacketCompleted(packet: ReceivePacket<*,*>) {
+            onReceivedPacket(packet)
         }
     }
 
-    protected open fun onReceiveNewMessage(str:String){
-        println("$key:$str")
+    protected open fun onReceivedPacket(packet:ReceivePacket<*,*>){
+        println("$key:[New Packet]-Type:${packet.type()}, Length:${packet.length()}")
     }
 }

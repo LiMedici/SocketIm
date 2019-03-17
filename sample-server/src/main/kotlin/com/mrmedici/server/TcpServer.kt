@@ -3,6 +3,7 @@ package server
 import com.mrmedici.clink.utils.CloseUtils
 import server.handle.ClientHandler
 import server.handle.ClientHandlerCallback
+import java.io.File
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.ServerSocket
@@ -11,7 +12,8 @@ import java.nio.channels.Selector
 import java.nio.channels.ServerSocketChannel
 import java.util.concurrent.Executors
 
-class TcpServer(private val port:Int) : ClientHandlerCallback{
+class TcpServer(private val port:Int,
+                private val cachePath:File) : ClientHandlerCallback{
     private var listener:ClientListener? = null
     private var selector:Selector? = null
     private var server:ServerSocketChannel? = null
@@ -110,7 +112,8 @@ class TcpServer(private val port:Int) : ClientHandlerCallback{
 
                             try {
                                 // 客户端构建异步线程
-                                val clientHandler = ClientHandler(socketChannel, this@TcpServer)
+                                val clientHandler = ClientHandler(socketChannel,
+                                        this@TcpServer,this@TcpServer.cachePath)
                                 // 添加同步处理
                                 synchronized(this@TcpServer) {
                                     this@TcpServer.clientHandlerList.add(clientHandler)

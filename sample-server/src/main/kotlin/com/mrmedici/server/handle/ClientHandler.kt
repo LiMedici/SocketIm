@@ -1,7 +1,10 @@
 package server.handle
 
 import com.mrmedici.clink.core.Connector
+import com.mrmedici.clink.core.ReceivePacket
+import com.mrmedici.clink.core.TYPE_MEMORY_STRING
 import com.mrmedici.clink.utils.CloseUtils
+import com.mrmedici.foo.Foo
 import java.io.*
 import java.net.Socket
 import java.nio.ByteBuffer
@@ -12,7 +15,8 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 class ClientHandler(private val socketChannel: SocketChannel,
-                    private val clientHandlerCallback: ClientHandlerCallback):Connector(){
+                    private val clientHandlerCallback: ClientHandlerCallback,
+                    private val cachePath:File):Connector(){
 
     private val clientInfo = socketChannel.remoteAddress.toString()
 
@@ -21,14 +25,24 @@ class ClientHandler(private val socketChannel: SocketChannel,
         println("新客户端连接：$clientInfo")
     }
 
-    override fun onReceiveNewMessage(str: String) {
-        super.onReceiveNewMessage(str)
-        clientHandlerCallback.onNewMessageArrived(this,str)
-    }
-
     override fun onChannelClosed(channel: SocketChannel) {
         super.onChannelClosed(channel)
         exitBySelf()
+    }
+
+    override fun createNewReceiveFile(): File {
+        return Foo.createRandomTemp(cachePath)
+    }
+
+    override fun onReceivedPacket(packet: ReceivePacket<*, *>) {
+        super.onReceivedPacket(packet)
+        if(packet.type() == TYPE_MEMORY_STRING){
+            val str:String? = packet.entity() as String
+            str?.let{
+                println("$key:$str")
+                clientHandlerCallback.onNewMessageArrived(this,str)
+            }
+        }
     }
 
     private fun exitBySelf(){

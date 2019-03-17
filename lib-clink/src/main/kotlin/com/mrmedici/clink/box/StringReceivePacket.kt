@@ -1,24 +1,16 @@
 package com.mrmedici.clink.box
 
 import com.mrmedici.clink.core.ReceivePacket
+import com.mrmedici.clink.core.TYPE_MEMORY_STRING
 import java.io.ByteArrayOutputStream
 
-class StringReceivePacket(length:Long) : ReceivePacket<ByteArrayOutputStream>(){
+class StringReceivePacket(len:Long) : AbsByteArrayReceivePacket<String>(len){
 
-    private var  string:String? = null
-
-    init {
-        this.length = length
+    override fun buildEntity(stream: ByteArrayOutputStream): String {
+        return String(stream.toByteArray())
     }
 
-    fun string():String? = string
-
-    override fun closeStream(stream:ByteArrayOutputStream) {
-        super.closeStream(stream)
-        string = String(stream.toByteArray())
-    }
-
-    override fun createStream(): ByteArrayOutputStream {
-        return ByteArrayOutputStream(length.toInt())
+    override fun type(): Byte {
+        return TYPE_MEMORY_STRING
     }
 }

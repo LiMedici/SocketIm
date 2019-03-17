@@ -14,7 +14,7 @@ class AsyncReceiveDispatcher(private val receiver:Receiver,
     private val isClosed = AtomicBoolean(false)
 
     private val ioArgs = IoArgs()
-    private var receivePacket:ReceivePacket<*>? = null
+    private var receivePacket:ReceivePacket<*,*>? = null
     private var packetChannel:WritableByteChannel? = null
     private var total:Long = 0
     private var position:Long = 0
@@ -57,7 +57,9 @@ class AsyncReceiveDispatcher(private val receiver:Receiver,
     private fun assemblePacket(args: IoArgs){
         if(receivePacket == null){
             val length = args.readLength()
-            receivePacket = StringReceivePacket(length.toLong())
+            val type = if(length > 200) TYPE_STREAM_FILE else TYPE_MEMORY_STRING
+            receivePacket = callback.onArrivedNewPacket(type,length.toLong())
+
             packetChannel = Channels.newChannel(receivePacket!!.open())
             total = length.toLong()
             position = 0
@@ -81,7 +83,7 @@ class AsyncReceiveDispatcher(private val receiver:Receiver,
      * 完成数据接收操作
      */
     private fun completePacket(isCucceed:Boolean) {
-        val packet:ReceivePacket<*>? = this.receivePacket
+        val packet:ReceivePacket<*,*>? = this.receivePacket
         CloseUtils.close(packet)
         receivePacket = null
 

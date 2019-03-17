@@ -1,17 +1,11 @@
 package com.mrmedici.clink.box
 
-import com.mrmedici.clink.core.SendPacket
-import java.io.ByteArrayInputStream
+import com.mrmedici.clink.core.TYPE_MEMORY_STRING
 
-class StringSendPacket(msg:String) : SendPacket<ByteArrayInputStream>(){
+class StringSendPacket(msg:String) : BytesSendPacket(msg.toByteArray()){
 
-    private val bytes:ByteArray = msg.toByteArray()
-
-    init {
-        this.length = bytes.size.toLong()
+    override fun type(): Byte {
+        return TYPE_MEMORY_STRING
     }
 
-    override fun createStream(): ByteArrayInputStream {
-        return ByteArrayInputStream(bytes)
-    }
 }

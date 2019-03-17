@@ -2,12 +2,15 @@ package com.mrmedici.client
 
 import client.ClientSearcher
 import client.TCPClient
+import com.mrmedici.foo.Foo
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 var done = false
 
 fun main(args: Array<String>) {
+    val cachePath = Foo.getCacheDir("client/test")
+
     val info = ClientSearcher.searchServer(10000)
     println("Server:$info")
 
@@ -17,7 +20,7 @@ fun main(args: Array<String>) {
 
     for (index in 0 until 10){
         try {
-            val tcpClient = TCPClient.startWith(info)
+            val tcpClient = TCPClient.startWith(info,cachePath)
             if (tcpClient == null) {
                 println("连接异常")
                 continue
@@ -37,7 +40,7 @@ fun main(args: Array<String>) {
 
     val runnable = Runnable {
         while(!done){
-            tcpClients.forEach { it?.send("Hello") }
+            tcpClients.forEach { it.send("Hello") }
 
             TimeUnit.SECONDS.sleep(1)
         }
@@ -53,5 +56,5 @@ fun main(args: Array<String>) {
     thread.join()
 
     // 客户端结束操作
-    tcpClients.forEach { it?.exit() }
+    tcpClients.forEach { it.exit() }
 }

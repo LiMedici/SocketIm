@@ -75,9 +75,9 @@ class SocketChannelAdapter(private val channel: SocketChannel,
                     // 具体的读取操作
                     if (args.readFrom(channel) > 0) {
                         // 读取完成回调
-                        it?.onConsumerCompleted(args)
+                        it.onConsumerCompleted(args)
                     } else {
-                        it?.onConsumerFailed(args,IOException("Cannot read any data!"))
+                        it.onConsumerFailed(args,IOException("Cannot read any data!"))
                     }
                 } catch (ignored: IOException) {
                     CloseUtils.close(this@SocketChannelAdapter)
