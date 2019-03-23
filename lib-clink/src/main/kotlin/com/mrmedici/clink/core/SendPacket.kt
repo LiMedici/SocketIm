@@ -11,7 +11,12 @@ abstract class SendPacket<Stream : InputStream> : Packet<Stream>(){
 
     private var isCanceled:Boolean = false
 
+    fun cancel(){
+        isCanceled = true
+    }
+
     fun isCanceled():Boolean{
         return isCanceled
     }
+
 }

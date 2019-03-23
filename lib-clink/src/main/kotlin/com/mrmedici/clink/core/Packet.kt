@@ -50,6 +50,14 @@ abstract class Packet<Stream : Closeable> : Closeable{
         stream?.close()
     }
 
+    /**
+     * 头部额外信息，用于携带额外的校验信息等。
+     * @return ByteArray 字节数组，最大255长度
+     */
+    fun headerInfo():ByteArray?{
+        return null
+    }
+
     @Throws(IOException::class)
     override fun close() {
         stream?.let {

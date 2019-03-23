@@ -8,17 +8,31 @@ import java.nio.channels.SocketChannel
 import java.nio.channels.WritableByteChannel
 
 class IoArgs{
-    private var limit:Int = 5
+    private var limit:Int = 255
     private val byteBuffer = ByteArray(limit)
     private val buffer = ByteBuffer.wrap(byteBuffer)
+
+    fun writeFrom(bytes:ByteArray,offset:Int,count:Int):Int{
+        var size:Int = Math.min(count,buffer.remaining())
+        if(size <= 0){
+            return 0
+        }
+
+        buffer.put(bytes,offset,count)
+        return size
+    }
+
+    fun readTo(bytes:ByteArray,offset:Int):Int{
+        var size:Int = Math.min(bytes.size - offset,buffer.remaining())
+        buffer.get(bytes,offset,size)
+        return size
+    }
 
     /**
      * 从channel中写入数据
      */
     @Throws(IOException::class)
     fun writeFrom(channel:ReadableByteChannel):Int{
-        startWriting()
-
         var bytesProduced = 0
         while (buffer.hasRemaining()){
             var len = channel.read(buffer)
@@ -27,8 +41,6 @@ class IoArgs{
             }
             bytesProduced += len
         }
-
-        finishWriting()
         return bytesProduced
     }
 
@@ -104,13 +116,7 @@ class IoArgs{
      * 设置单词写操作的容纳区间
      */
     fun limit(limit:Int){
-        this.limit = limit
-    }
-
-    fun writeLength(total: Int) {
-        startWriting()
-        buffer.putInt(total)
-        finishWriting()
+        this.limit = Math.min(limit,buffer.capacity())
     }
 
     fun readLength():Int{
@@ -120,6 +126,22 @@ class IoArgs{
     fun capacity(): Int {
         return buffer.capacity()
     }
+
+    fun remained(): Boolean {
+        return buffer.hasRemaining()
+    }
+
+    fun fillEmpty(size: Int):Int {
+        val fillSize = Math.min(size,buffer.remaining())
+        buffer.position(buffer.position() + fillSize)
+        return fillSize
+    }
+
+    fun setEmpty(size:Int):Int{
+        val emptySize = Math.min(size,buffer.remaining())
+        buffer.position(buffer.position() + emptySize)
+        return emptySize
+    }
 }
 
 /**
@@ -127,9 +149,9 @@ class IoArgs{
  */
 interface IoArgsEventProcessor{
     // 提供一个可消费的IoArgs
-    fun provideIoArgs():IoArgs
+    fun provideIoArgs():IoArgs?
     // 消费失败的回调
-    fun onConsumerFailed(args:IoArgs,e:Exception)
+    fun onConsumerFailed(args:IoArgs?,e:Exception)
     // 消费成功
     fun onConsumerCompleted(args:IoArgs)
 

@@ -73,11 +73,11 @@ class SocketChannelAdapter(private val channel: SocketChannel,
 
                 try {
                     // 具体的读取操作
-                    if (args.readFrom(channel) > 0) {
-                        // 读取完成回调
-                        it.onConsumerCompleted(args)
-                    } else {
-                        it.onConsumerFailed(args,IOException("Cannot read any data!"))
+                    when {
+                        args == null -> it.onConsumerFailed(null,IOException("ProvideIoArgs is null."))
+                        args.readFrom(channel) > 0 -> // 读取完成回调
+                            it.onConsumerCompleted(args)
+                        else -> it.onConsumerFailed(args,IOException("Cannot read any data!"))
                     }
                 } catch (ignored: IOException) {
                     CloseUtils.close(this@SocketChannelAdapter)
@@ -99,11 +99,11 @@ class SocketChannelAdapter(private val channel: SocketChannel,
 
                 try{
                     // 具体的写入操作
-                    if(args.writeTo(channel) > 0){
-                        // 读取完成回调
-                        it.onConsumerCompleted(args)
-                    }else {
-                        it.onConsumerFailed(args,IOException("Cannot write any data!"))
+                    when {
+                        args == null -> it.onConsumerFailed(null,IOException("ProvideIoArgs is null."))
+                        args.writeTo(channel) > 0 -> // 读取完成回调
+                            it.onConsumerCompleted(args)
+                        else -> it.onConsumerFailed(args,IOException("Cannot write any data!"))
                     }
                 }catch (ignored:IOException){
                     CloseUtils.close(this@SocketChannelAdapter)
