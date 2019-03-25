@@ -65,18 +65,18 @@ class IoArgs{
      */
     @Throws(IOException::class)
     fun readFrom(channel: SocketChannel):Int{
-        startWriting()
 
+        val buffer = this.buffer
         var bytesProduced = 0
-        while (buffer.hasRemaining()){
-            var len = channel.read(buffer)
+        var len: Int
+        do{
+            len = channel.read(buffer)
             if(len < 0){
-                throw EOFException()
+                throw EOFException("Cannot read any data with：$channel")
             }
             bytesProduced += len
-        }
+        }while (buffer.hasRemaining() && len != 0)
 
-        finishWriting()
         return bytesProduced
     }
 
@@ -85,14 +85,16 @@ class IoArgs{
      */
     @Throws(IOException::class)
     fun writeTo(channel: SocketChannel):Int{
+        val buffer = this.buffer
         var bytesProduced = 0
-        while (buffer.hasRemaining()){
-            var len = channel.write(buffer)
+        var len: Int
+        do{
+            len = channel.write(buffer)
             if(len < 0){
-                throw EOFException()
+                throw EOFException("Current write data with:$channel")
             }
             bytesProduced += len
-        }
+        }while (buffer.hasRemaining() && len != 0)
         return bytesProduced
     }
 

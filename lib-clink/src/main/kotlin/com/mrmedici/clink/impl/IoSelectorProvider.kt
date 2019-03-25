@@ -55,12 +55,12 @@ class IoSelectorProvider : IoProvider {
     }
 
 
-    override fun registerInput(channel: SocketChannel, callback: IoProvider.HandleInputCallback): Boolean {
+    override fun registerInput(channel: SocketChannel, callback: IoProvider.HandleProviderCallback): Boolean {
         return registerSelection(channel, readSelector, SelectionKey.OP_READ, isRegInput,
                 inputCallbackMap, callback) != null
     }
 
-    override fun registerOutput(channel: SocketChannel, callback: IoProvider.HandleOutputCallback): Boolean {
+    override fun registerOutput(channel: SocketChannel, callback: IoProvider.HandleProviderCallback): Boolean {
         return registerSelection(channel, writeSelector, SelectionKey.OP_WRITE, isRegOutput,
                 outputCallbackMap, callback) != null
     }

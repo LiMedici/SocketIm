@@ -4,25 +4,27 @@ import java.io.Closeable
 import java.nio.channels.SocketChannel
 
 interface IoProvider : Closeable{
-    fun registerInput(channel: SocketChannel,callback: HandleInputCallback):Boolean
-    fun registerOutput(channel: SocketChannel,callback: HandleOutputCallback):Boolean
+    fun registerInput(channel: SocketChannel,callback: HandleProviderCallback):Boolean
+    fun registerOutput(channel: SocketChannel,callback: HandleProviderCallback):Boolean
     fun unRegisterInput(channel: SocketChannel)
     fun unRegisterOutput(channel: SocketChannel)
 
-    abstract class HandleInputCallback : Runnable{
-        override fun run() {
-            canProviderInput()
-        }
+    abstract class HandleProviderCallback : Runnable{
 
-        abstract fun canProviderInput()
-    }
-
-    abstract class HandleOutputCallback : Runnable{
+        @Volatile
+        protected var attach:IoArgs? = null
 
         override fun run() {
-            canProviderOutput()
+            onProviderIo(attach)
         }
 
-        abstract fun canProviderOutput()
+        abstract fun onProviderIo(args:IoArgs?)
+
+        @Throws(IllegalStateException::class)
+        fun checkAttachNull() {
+            if(attach != null){
+                throw IllegalStateException("Current attach is not empty!")
+            }
+        }
     }
 }

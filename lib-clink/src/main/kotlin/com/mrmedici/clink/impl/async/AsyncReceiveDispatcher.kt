@@ -49,7 +49,10 @@ class AsyncReceiveDispatcher(private val receiver:Receiver,
     }
 
     override fun provideIoArgs(): IoArgs {
-        return writer.taskIoArgs()
+        val ioArgs = writer.taskIoArgs()
+        // 一份新的IoArgs需要调用一次需要写入数据的操作
+        ioArgs.startWriting()
+        return ioArgs
     }
 
     override fun onConsumerFailed(args: IoArgs?, e: Exception) {
@@ -60,6 +63,8 @@ class AsyncReceiveDispatcher(private val receiver:Receiver,
         if(isClosed.get()){
             return
         }
+
+        args.finishWriting()
 
         do{
             writer.consumeIoArgs(args)
