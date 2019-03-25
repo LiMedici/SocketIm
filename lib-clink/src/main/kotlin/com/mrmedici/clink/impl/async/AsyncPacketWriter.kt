@@ -91,7 +91,7 @@ class AsyncPacketWriter(private val provider: PacketProvider) : Closeable {
         synchronized(packetMap){
             val identifier = frame.getBodyIdentifier()
             val length = frame.getBodyLength()
-            val model = this.packetMap[identifier]!!
+            val model: PacketModel = this.packetMap[identifier] ?: return
             model.unReceivedLength -= length
             if(model.unReceivedLength <= 0){
                 provider.completedPacket(model.packet,true)

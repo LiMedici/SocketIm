@@ -46,7 +46,9 @@ private fun write(client:TCPClient){
     do{
         // 键盘读取一行
         val str:String = input.readLine()
-        if("00bye00".equals(str,true)) {
+        if(str == null ||
+                str.isEmpty() ||
+                "00bye00".equals(str,true)) {
             break
         }
 

@@ -3,9 +3,6 @@ package com.mrmedici.clink.impl.async
 import com.mrmedici.clink.core.*
 import com.mrmedici.clink.utils.CloseUtils
 import java.io.IOException
-import java.nio.channels.Channels
-import java.nio.channels.ReadableByteChannel
-import java.util.*
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -17,29 +14,19 @@ class AsyncSendDispatcher(private val sender: Sender) : SendDispatcher,
     private val isClosed = AtomicBoolean(false)
 
     private val reader = AsyncPacketReader(this)
-    private val queueLock = Any()
 
     init {
         sender.setSendListener(this)
     }
 
     override fun send(packet: SendPacket<*>) {
-        synchronized(queueLock){
-            queue.offer(packet)
-            if (isSending.compareAndSet(false, true)) {
-                if(reader.requestTakePacket()){
-                    requestSend()
-                }
-            }
-        }
+        queue.offer(packet)
+        requestSend()
     }
 
     override fun cancel(packet: SendPacket<*>) {
-        var ret = false
-        synchronized(queueLock){
-            ret = queue.remove(packet)
-        }
-        if(ret){
+        var ret = queue.remove(packet)
+        if (ret) {
             packet.cancel()
             return
         }
@@ -48,15 +35,7 @@ class AsyncSendDispatcher(private val sender: Sender) : SendDispatcher,
     }
 
     override fun takePacket(): SendPacket<*>? {
-        var packet: SendPacket<*>? = null
-        synchronized(queueLock){
-            packet = queue.poll()
-            if(packet == null){
-                // 队列为空，取消发送状态
-                isSending.set(false)
-                return null
-            }
-        }
+        var packet: SendPacket<*>? = queue.poll() ?: return null
 
         if (packet!!.isCanceled()) {
             // 已取消不用发送
@@ -71,10 +50,21 @@ class AsyncSendDispatcher(private val sender: Sender) : SendDispatcher,
     }
 
     private fun requestSend() {
-        try {
-            sender.postSendAsync()
-        } catch (e: IOException) {
-            closeAndNotify()
+        synchronized(isSending){
+            if(isSending.get().or(isClosed.get())){
+                return
+            }
+
+            if(reader.requestTakePacket()){
+                try {
+                    val isSucceed = sender.postSendAsync()
+                    if(isSucceed){
+                        isSending.set(true)
+                    }
+                } catch (e: IOException) {
+                    closeAndNotify()
+                }
+            }
         }
     }
 
@@ -85,28 +75,39 @@ class AsyncSendDispatcher(private val sender: Sender) : SendDispatcher,
 
     override fun close() {
         if (isClosed.compareAndSet(false, true)) {
-            isSending.set(false)
             // 异常关闭导致的完成
             CloseUtils.close(reader)
+            // 清理队列
+            queue.clear()
+
+            synchronized(isSending){
+                isSending.set(false)
+            }
         }
     }
 
     override fun provideIoArgs(): IoArgs? {
-        return reader.fillData()
+        return if(isClosed.get()) null
+        else reader.fillData()
     }
 
     override fun onConsumerFailed(args: IoArgs?, e: Exception) {
-        if(args != null) {
-            e.printStackTrace()
-        }else{
-            // TODO 后续补充
+        e.printStackTrace()
+        synchronized(isSending){
+            isSending.set(false)
         }
+
+        // 继续请求发送当前的数据
+        requestSend()
     }
 
     override fun onConsumerCompleted(args: IoArgs) {
         // 继续发送当前包
-        if(reader.requestTakePacket()){
-            requestSend()
+        synchronized(isSending){
+            isSending.set(false)
         }
+
+        // 继续请求发送当前的数据
+        requestSend()
     }
 }

@@ -39,7 +39,7 @@ class ClientHandler(private val socketChannel: SocketChannel,
         if(packet.type() == TYPE_MEMORY_STRING){
             val str:String? = packet.entity() as String
             str?.let{
-                println("$key:$str")
+                // println("$key:$str")
                 clientHandlerCallback.onNewMessageArrived(this,str)
             }
         }

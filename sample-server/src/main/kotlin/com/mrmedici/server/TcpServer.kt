@@ -1,6 +1,7 @@
 package server
 
 import com.mrmedici.clink.utils.CloseUtils
+import org.omg.CORBA.Object
 import server.handle.ClientHandler
 import server.handle.ClientHandlerCallback
 import java.io.File
@@ -12,15 +13,18 @@ import java.nio.channels.Selector
 import java.nio.channels.ServerSocketChannel
 import java.util.concurrent.Executors
 
-class TcpServer(private val port:Int,
-                private val cachePath:File) : ClientHandlerCallback{
-    private var listener:ClientListener? = null
-    private var selector:Selector? = null
-    private var server:ServerSocketChannel? = null
+class TcpServer(private val port: Int,
+                private val cachePath: File) : ClientHandlerCallback {
+    private var listener: ClientListener? = null
+    private var selector: Selector? = null
+    private var server: ServerSocketChannel? = null
     private val clientHandlerList = ArrayList<ClientHandler>()
     private val forwardingThreadPoolExecutor = Executors.newSingleThreadExecutor()
 
-    fun start():Boolean {
+    private var sendSize: Long = 0
+    private var receiveSize: Long = 0
+
+    fun start(): Boolean {
         try {
             selector = Selector.open()
             val server = ServerSocketChannel.open()
@@ -29,7 +33,7 @@ class TcpServer(private val port:Int,
             // 绑定本地端口
             server.socket().bind(InetSocketAddress(port))
 
-            server.register(selector,SelectionKey.OP_ACCEPT)
+            server.register(selector, SelectionKey.OP_ACCEPT)
 
             this.server = server
 
@@ -39,7 +43,7 @@ class TcpServer(private val port:Int,
             val listener = ClientListener()
             this.listener = listener
             listener.start()
-        }catch (e:IOException){
+        } catch (e: IOException) {
             e.printStackTrace()
             return false
         }
@@ -54,7 +58,7 @@ class TcpServer(private val port:Int,
         CloseUtils.close(selector!!)
 
 
-        synchronized(this@TcpServer){
+        synchronized(this@TcpServer) {
             clientHandlerList.forEach { it.exit() }
             clientHandlerList.clear()
         }
@@ -65,6 +69,8 @@ class TcpServer(private val port:Int,
     @Synchronized
     fun broadcast(str: String) {
         clientHandlerList.forEach { it.send(str) }
+        // 发送数量增加
+        sendSize += clientHandlerList.size
     }
 
     @Synchronized
@@ -73,13 +79,24 @@ class TcpServer(private val port:Int,
     }
 
     override fun onNewMessageArrived(handler: ClientHandler, msg: String) {
+        // 接收数量+1
+        receiveSize++
+
         forwardingThreadPoolExecutor.execute {
-            synchronized(this@TcpServer){
+            synchronized(this@TcpServer) {
                 clientHandlerList
                         .filter { it !== handler }
-                        .forEach { it.send(msg) }
+                        .forEach {
+                            it.send(msg)
+                            // 发送数量+1
+                            sendSize++
+                        }
             }
         }
+    }
+
+    fun getStatusString(): Array<Any> {
+        return arrayOf("客户端数量：${clientHandlerList.size}","发送数量：$sendSize","接收数量：$receiveSize")
     }
 
     private inner class ClientListener : Thread() {
@@ -88,24 +105,24 @@ class TcpServer(private val port:Int,
         override fun run() {
             val selector = this@TcpServer.selector
             println("服务器准备就绪~")
-            do{
+            do {
                 try {
                     // 等待客户端连接
-                    if(selector!!.select() == 0){
-                        if(done){
+                    if (selector!!.select() == 0) {
+                        if (done) {
                             break
                         }
                         continue
                     }
 
                     val iterator = selector.selectedKeys().iterator()
-                    while (iterator.hasNext()){
-                        if(done) break
+                    while (iterator.hasNext()) {
+                        if (done) break
                         val selectionKey = iterator.next()
                         iterator.remove()
                         // 检查当前Key的状态是否是我们关注的
                         // 客户端到达状态
-                        if(selectionKey.isValid && selectionKey.isAcceptable){
+                        if (selectionKey.isValid && selectionKey.isAcceptable) {
                             val serverSocketChannel = selectionKey.channel() as ServerSocketChannel
                             // 非阻塞状态拿到客户端连接
                             val socketChannel = serverSocketChannel.accept()
@@ -113,26 +130,27 @@ class TcpServer(private val port:Int,
                             try {
                                 // 客户端构建异步线程
                                 val clientHandler = ClientHandler(socketChannel,
-                                        this@TcpServer,this@TcpServer.cachePath)
+                                        this@TcpServer, this@TcpServer.cachePath)
                                 // 添加同步处理
                                 synchronized(this@TcpServer) {
                                     this@TcpServer.clientHandlerList.add(clientHandler)
+                                    println("当前客户端数量：${this@TcpServer.clientHandlerList.size}")
                                 }
-                            }catch (e:IOException){
+                            } catch (e: IOException) {
                                 e.printStackTrace()
                                 println("客户端连接异常:${e.message}")
                             }
                         }
                     }
-                }catch (e:IOException){
+                } catch (e: IOException) {
                     e.printStackTrace()
                 }
-            }while (!done)
+            } while (!done)
 
             println("服务器已关闭！")
         }
 
-        fun exit(){
+        fun exit() {
             done = true
             // 唤醒当前的阻塞
             selector!!.wakeup()

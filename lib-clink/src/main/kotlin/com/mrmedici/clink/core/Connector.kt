@@ -83,6 +83,6 @@ abstract class Connector : OnChannelStatusChangedListener,Closeable{
     }
 
     protected open fun onReceivedPacket(packet:ReceivePacket<*,*>){
-        println("$key:[New Packet]-Type:${packet.type()}, Length:${packet.length()}")
+        // println("$key:[New Packet]-Type:${packet.type()}, Length:${packet.length()}")
     }
 }

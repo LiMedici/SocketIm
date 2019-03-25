@@ -1,14 +1,14 @@
 package com.mrmedici.clink.impl
 
 import com.mrmedici.clink.core.IoProvider
+import com.mrmedici.clink.extensions.notifyAllK
 import com.mrmedici.clink.extensions.notifyK
 import com.mrmedici.clink.extensions.waitK
+import com.mrmedici.clink.impl.IoSelectorProvider.Companion.handleSelection
+import com.mrmedici.clink.impl.IoSelectorProvider.Companion.waitSelection
 import com.mrmedici.clink.utils.CloseUtils
 import java.io.IOException
-import java.nio.channels.ClosedChannelException
-import java.nio.channels.SelectionKey
-import java.nio.channels.Selector
-import java.nio.channels.SocketChannel
+import java.nio.channels.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ThreadFactory
@@ -28,9 +28,9 @@ class IoSelectorProvider : IoProvider {
     private val inputCallbackMap = HashMap<SelectionKey, Runnable>()
     private val outputCallbackMap = HashMap<SelectionKey, Runnable>()
 
-    private val inputHandlePool = Executors.newFixedThreadPool(4,
+    private val inputHandlePool = Executors.newFixedThreadPool(20,
             IoProviderThreadFactory("IoProvider-Input-Thread-"))
-    private val outputHandlePool = Executors.newFixedThreadPool(4,
+    private val outputHandlePool = Executors.newFixedThreadPool(20,
             IoProviderThreadFactory("IoProvider-Output-Thread-"))
 
     init {
@@ -39,134 +39,99 @@ class IoSelectorProvider : IoProvider {
     }
 
     private fun startRead() {
-        val thread = object : Thread("Clink IoSelectorProvider WriteSelector Thread") {
-            override fun run() {
-                while (!isClosed.get()) {
-                    try {
-                        if (readSelector.select() == 0) {
-                            waitSelection(isRegInput)
-                            continue
-                        }
-
-                        val selectedKeys = readSelector.selectedKeys()
-                        selectedKeys
-                                .filter { it.isValid }
-                                .forEach { handleSelection(it, SelectionKey.OP_READ, inputCallbackMap, inputHandlePool) }
-                        selectedKeys.clear()
-                    } catch (e: IOException) {
-                        e.printStackTrace()
-                    }
-                }
-            }
-        }
-        thread.priority = Thread.MAX_PRIORITY
+        val thread = SelectThread("Clink IoSelectorProvider ReadSelector Thread",
+                isClosed, isRegInput, readSelector,
+                inputCallbackMap, inputHandlePool,
+                SelectionKey.OP_READ)
         thread.start()
     }
 
     private fun startWrite() {
-        val thread = object : Thread("Clink IoSelectorProvider ReadSelector Thread") {
-            override fun run() {
-                while (!isClosed.get()) {
-                    try {
-                        if (writeSelector.select() == 0) {
-                            waitSelection(isRegOutput)
-                            continue
-                        }
-
-                        val selectedKeys = writeSelector.selectedKeys()
-                        selectedKeys
-                                .filter { it.isValid }
-                                .forEach { handleSelection(it, SelectionKey.OP_WRITE, outputCallbackMap, outputHandlePool) }
-                        selectedKeys.clear()
-                    } catch (e: IOException) {
-                        e.printStackTrace()
-                    }
-                }
-            }
-        }
-        thread.priority = Thread.MAX_PRIORITY
+        val thread = SelectThread("Clink IoSelectorProvider WriteSelector Thread",
+                isClosed, isRegOutput, writeSelector,
+                outputCallbackMap, outputHandlePool,
+                SelectionKey.OP_WRITE)
         thread.start()
     }
 
 
     override fun registerInput(channel: SocketChannel, callback: IoProvider.HandleInputCallback): Boolean {
-        return registerSelection(channel,readSelector,SelectionKey.OP_READ,isRegInput,
-                inputCallbackMap,callback) != null
+        return registerSelection(channel, readSelector, SelectionKey.OP_READ, isRegInput,
+                inputCallbackMap, callback) != null
     }
 
     override fun registerOutput(channel: SocketChannel, callback: IoProvider.HandleOutputCallback): Boolean {
-        return registerSelection(channel,writeSelector,SelectionKey.OP_WRITE,isRegOutput,
-                outputCallbackMap,callback) != null
+        return registerSelection(channel, writeSelector, SelectionKey.OP_WRITE, isRegOutput,
+                outputCallbackMap, callback) != null
     }
 
     override fun unRegisterInput(channel: SocketChannel) {
-        unRegisterSelection(channel,readSelector,inputCallbackMap)
+        unRegisterSelection(channel, readSelector, inputCallbackMap,isRegInput)
     }
 
     override fun unRegisterOutput(channel: SocketChannel) {
-        unRegisterSelection(channel,writeSelector,outputCallbackMap)
+        unRegisterSelection(channel, writeSelector, outputCallbackMap,isRegOutput)
     }
 
     override fun close() {
-        if(isClosed.compareAndSet(false,true)){
+        if (isClosed.compareAndSet(false, true)) {
             inputHandlePool.shutdownNow()
             outputHandlePool.shutdownNow()
 
             inputCallbackMap.clear()
             outputCallbackMap.clear()
-
-            readSelector.wakeup()
-            writeSelector.wakeup()
-
-            CloseUtils.close(readSelector,writeSelector)
+            // close方法已经作唤醒操作
+            CloseUtils.close(readSelector, writeSelector)
         }
     }
 
 
     companion object {
 
-        private fun waitSelection(locker: AtomicBoolean){
-            synchronized(locker){
-                if(locker.get()){
+        fun waitSelection(locker: AtomicBoolean) {
+            synchronized(locker) {
+                if (locker.get()) {
                     try {
                         locker.waitK()
-                    }catch (e:InterruptedException){
+                    } catch (e: InterruptedException) {
                         e.printStackTrace()
                     }
                 }
             }
         }
 
-        private fun registerSelection(channel: SocketChannel, selector: Selector,
-                             registerOps: Int, locker: AtomicBoolean,
-                             map: HashMap<SelectionKey, Runnable>,
-                             runnable: Runnable):SelectionKey? {
-            synchronized(locker){
+        fun registerSelection(channel: SocketChannel, selector: Selector,
+                              registerOps: Int, locker: AtomicBoolean,
+                              map: HashMap<SelectionKey, Runnable>,
+                              runnable: Runnable): SelectionKey? {
+            synchronized(locker) {
                 // 设置锁定状态
                 locker.set(true)
 
-                try{
+                try {
                     // 唤醒当前的selector,让selector不处于select()状态
                     selector.wakeup()
 
-                    var key:SelectionKey? = null
-                    if(channel.isRegistered){
+                    var key: SelectionKey? = null
+                    if (channel.isRegistered) {
                         key = channel.keyFor(selector)
-                        if(key != null){
-                            key.interestOps(key.interestOps().or(registerOps))
-                        }
+                        key?.interestOps(key.interestOps().or(registerOps))
                     }
 
-                    if(key == null){
+                    if (key == null) {
                         // 注册selector得到Key
-                        key = channel.register(selector,registerOps)
-                        map.put(key,runnable)
+                        key = channel.register(selector, registerOps)
+                        map[key] = runnable
                     }
 
                     return key
-                }catch (e:ClosedChannelException){
+                } catch (e: ClosedChannelException){
                     return null
-                }finally {
+                } catch (e: CancelledKeyException){
+                    return null
+                } catch (e: ClosedSelectorException){
+                    return null
+                } finally {
                     // 解除锁定状态
                     locker.set(false)
                     // 通知
@@ -175,24 +140,44 @@ class IoSelectorProvider : IoProvider {
             }
         }
 
-        private fun unRegisterSelection(channel: SocketChannel,selector: Selector,
-                                        map:HashMap<SelectionKey,Runnable>){
-            if(channel.isRegistered){
-                val key = channel.keyFor(selector)
-                key?.let {
-                    it.cancel()
-                    map.remove(it)
-                    selector.wakeup()
+        fun unRegisterSelection(channel: SocketChannel, selector: Selector,
+                                map: HashMap<SelectionKey, Runnable>,
+                                locker: AtomicBoolean) {
+            synchronized(locker){
+                locker.set(true)
+                selector.wakeup()
+                try{
+                    if (channel.isRegistered) {
+                        val key = channel.keyFor(selector)
+                        key?.let {
+                            it.cancel()
+                            map.remove(it)
+                        }
+                    }
+                }finally {
+                    locker.set(false)
+                    try{
+                        locker.notifyAllK()
+                    } catch (ignored:Exception){
+
+                    }
                 }
             }
         }
 
-        private fun handleSelection(key: SelectionKey, keyOps: Int,
-                                    map: HashMap<SelectionKey, Runnable>,
-                                    pool: ExecutorService) {
+        fun handleSelection(key: SelectionKey, keyOps: Int,
+                            map: HashMap<SelectionKey, Runnable>,
+                            pool: ExecutorService,
+                            locker: AtomicBoolean) {
             // TODO 重点 疑问：都取消对KeyOps的监听了，为什么还会出现单个消息多分接收的问题。
             // 取消继续对KeyOps的监听
-            key.interestOps(key.interestOps().and(keyOps.inv()))
+            synchronized(locker) {
+                try {
+                    key.interestOps(key.interestOps().and(keyOps.inv()))
+                } catch (e: CancelledKeyException) {
+                    return
+                }
+            }
 
             var runnable: Runnable? = null
             try {
@@ -208,6 +193,52 @@ class IoSelectorProvider : IoProvider {
         }
     }
 
+}
+
+private class SelectThread(name: String,
+                           private val isClosed: AtomicBoolean,
+                           private val locker: AtomicBoolean,
+                           private val selector: Selector,
+                           private val callMap: HashMap<SelectionKey, Runnable>,
+                           private val pool: ExecutorService,
+                           private val keyOps: Int) : Thread(name) {
+    init {
+        this.priority = Thread.MAX_PRIORITY
+    }
+
+    override fun run() {
+        val isClosed = this.isClosed
+        val locker = this.locker
+        val selector = this.selector
+        val callMap = this.callMap
+        val pool = this.pool
+        val keyOps = this.keyOps
+
+        while (!isClosed.get()) {
+            try {
+                if (selector.select() == 0) {
+                    waitSelection(locker)
+                    continue
+                } else if (locker.get()) {
+                    waitSelection(locker)
+                }
+
+                val selectedKeys = selector.selectedKeys()
+                val iterator = selectedKeys.iterator()
+                while (iterator.hasNext()) {
+                    val next = iterator.next()
+                    if (next.isValid) {
+                        handleSelection(next, keyOps, callMap, pool,locker)
+                    }
+                    iterator.remove()
+                }
+            } catch (e: IOException) {
+                e.printStackTrace()
+            } catch (ignored:ClosedSelectorException){
+                break
+            }
+        }
+    }
 }
 
 internal class IoProviderThreadFactory(namePrefix: String) : ThreadFactory {

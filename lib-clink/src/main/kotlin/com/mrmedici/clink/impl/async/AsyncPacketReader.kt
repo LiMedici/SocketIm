@@ -117,7 +117,6 @@ class AsyncPacketReader(private val provider: PacketProvider) : Closeable {
                 provider.completedPacket(packet,false)
             }
 
-            // TODO 与教学视频中不同
             node = node!!.next
         }
 

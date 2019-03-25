@@ -57,9 +57,13 @@ class AsyncReceiveDispatcher(private val receiver:Receiver,
     }
 
     override fun onConsumerCompleted(args: IoArgs) {
+        if(isClosed.get()){
+            return
+        }
+
         do{
             writer.consumeIoArgs(args)
-        }while (args.remained())
+        }while (args.remained() && !isClosed.get())
         registerReceive()
     }
 
