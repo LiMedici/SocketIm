@@ -1,48 +1,63 @@
 package server
 
+import com.mrmedici.clink.box.StringReceivePacket
+import com.mrmedici.clink.core.Connector
 import com.mrmedici.clink.utils.CloseUtils
-import org.omg.CORBA.Object
+import com.mrmedici.foo.COMMAND_GROUP_JOIN
+import com.mrmedici.foo.COMMAND_GROUP_LEAVE
+import com.mrmedici.foo.DEFAULT_GROUP_NAME
+import com.mrmedici.server.*
+import com.mrmedici.server.handle.ConnectorCloseChain
+import com.mrmedici.server.handle.ConnectorStringPacketChain
 import server.handle.ClientHandler
-import server.handle.ClientHandlerCallback
 import java.io.File
 import java.io.IOException
 import java.net.InetSocketAddress
-import java.net.ServerSocket
 import java.nio.channels.SelectionKey
 import java.nio.channels.Selector
 import java.nio.channels.ServerSocketChannel
+import java.nio.channels.SocketChannel
 import java.util.concurrent.Executors
 
 class TcpServer(private val port: Int,
-                private val cachePath: File) : ClientHandlerCallback {
-    private var listener: ClientListener? = null
-    private var selector: Selector? = null
+                private val cachePath: File) : AcceptListener,GroupMessageAdapter {
+    private lateinit var accepter: ServerAccepter
     private var server: ServerSocketChannel? = null
     private val clientHandlerList = ArrayList<ClientHandler>()
-    private val forwardingThreadPoolExecutor = Executors.newSingleThreadExecutor()
+    private val deliveryPool = Executors.newSingleThreadExecutor()
+    private val statistics = ServerStatistics()
+    private val groups = HashMap<String,Group>()
 
-    private var sendSize: Long = 0
-    private var receiveSize: Long = 0
+    init {
+        groups[DEFAULT_GROUP_NAME] = Group(DEFAULT_GROUP_NAME,this)
+    }
 
     fun start(): Boolean {
         try {
-            selector = Selector.open()
+            // 启动Acceptor线程
+            val accepter = ServerAccepter(this)
+
             val server = ServerSocketChannel.open()
             // 设置为非阻塞状态
             server.configureBlocking(false)
             // 绑定本地端口
             server.socket().bind(InetSocketAddress(port))
 
-            server.register(selector, SelectionKey.OP_ACCEPT)
+            server.register(accepter.selector, SelectionKey.OP_ACCEPT)
 
             this.server = server
+            this.accepter = accepter
 
-            println("服务器信息：${server.localAddress}")
-
-            // 启动客户端监听
-            val listener = ClientListener()
-            this.listener = listener
-            listener.start()
+            // 线程需要启动
+            accepter.start()
+            return if(accepter.awaitRunning()){
+                println("服务器准备就绪~")
+                println("服务器信息：${server.localAddress}")
+                true
+            }else{
+                println("启动异常!")
+                false
+            }
         } catch (e: IOException) {
             e.printStackTrace()
             return false
@@ -52,108 +67,95 @@ class TcpServer(private val port: Int,
     }
 
     fun stop() {
-        listener?.exit()
+        accepter.exit()
 
-        CloseUtils.close(server!!)
-        CloseUtils.close(selector!!)
-
-
-        synchronized(this@TcpServer) {
+        synchronized(clientHandlerList) {
             clientHandlerList.forEach { it.exit() }
             clientHandlerList.clear()
         }
 
-        forwardingThreadPoolExecutor.shutdownNow()
+        CloseUtils.close(server!!)
+
+        deliveryPool.shutdownNow()
     }
 
-    @Synchronized
     fun broadcast(str: String) {
-        clientHandlerList.forEach { it.send(str) }
-        // 发送数量增加
-        sendSize += clientHandlerList.size
+        val notificationStr = "系统通知: $str"
+        synchronized(clientHandlerList){
+            clientHandlerList.forEach { sendMessageToClient(it,notificationStr) }
+        }
     }
 
-    @Synchronized
-    override fun onSelfClosed(clientHandler: ClientHandler) {
-        this@TcpServer.clientHandlerList.remove(clientHandler)
+    override fun sendMessageToClient(handler: ClientHandler,msg:String){
+        handler.send(msg)
+        statistics.sendSize++
     }
 
-    override fun onNewMessageArrived(handler: ClientHandler, msg: String) {
-        // 接收数量+1
-        receiveSize++
+    fun getStatusString(): Array<Any> {
+        return arrayOf("客户端数量：${clientHandlerList.size}","发送数量：${statistics.sendSize}","接收数量：${statistics.receiveSize}")
+    }
 
-        forwardingThreadPoolExecutor.execute {
+    override fun onNewSocketArrived(channel: SocketChannel) {
+        try {
+            // 客户端构建异步线程
+            val clientHandler = ClientHandler(channel, deliveryPool,this@TcpServer.cachePath)
+            println("${clientHandler.getClientInfo()}:Connected!")
+
+            clientHandler.stringPacketChain.appendLast(statistics.statisticsChain())
+                    .appendLast(ParseCommandConnectorStringPacketChain())
+            clientHandler.closeChain.appendLast(RemoveQueueOnConnectorCloseChain())
+
+            // 添加同步处理
             synchronized(this@TcpServer) {
-                clientHandlerList
-                        .filter { it !== handler }
-                        .forEach {
-                            it.send(msg)
-                            // 发送数量+1
-                            sendSize++
-                        }
+                this@TcpServer.clientHandlerList.add(clientHandler)
+                println("当前客户端数量：${this@TcpServer.clientHandlerList.size}")
+            }
+        } catch (e: IOException) {
+            e.printStackTrace()
+            println("客户端连接异常:${e.message}")
+        }
+    }
+
+    private inner class RemoveQueueOnConnectorCloseChain : ConnectorCloseChain(){
+        override fun consume(handler: ClientHandler, model: Connector): Boolean {
+            synchronized(this@TcpServer.clientHandlerList){
+                this@TcpServer.clientHandlerList.remove(handler)
+                // 移除群聊的客户端
+                val group = groups[DEFAULT_GROUP_NAME]
+                group?.removeMember(handler)
+                return true
             }
         }
     }
 
-    fun getStatusString(): Array<Any> {
-        return arrayOf("客户端数量：${clientHandlerList.size}","发送数量：$sendSize","接收数量：$receiveSize")
-    }
-
-    private inner class ClientListener : Thread() {
-        private var done = false
-
-        override fun run() {
-            val selector = this@TcpServer.selector
-            println("服务器准备就绪~")
-            do {
-                try {
-                    // 等待客户端连接
-                    if (selector!!.select() == 0) {
-                        if (done) {
-                            break
-                        }
-                        continue
+    private inner class ParseCommandConnectorStringPacketChain : ConnectorStringPacketChain(){
+        override fun consume(handler: ClientHandler, model: StringReceivePacket): Boolean {
+            val str:String? = model.entity()
+            return when {
+                str == null -> false
+                str.startsWith(COMMAND_GROUP_JOIN) -> {
+                    val group:Group = groups[DEFAULT_GROUP_NAME]!!
+                    if(group.addMember(handler)){
+                        sendMessageToClient(handler,"Join Group:${group.getName()}")
                     }
-
-                    val iterator = selector.selectedKeys().iterator()
-                    while (iterator.hasNext()) {
-                        if (done) break
-                        val selectionKey = iterator.next()
-                        iterator.remove()
-                        // 检查当前Key的状态是否是我们关注的
-                        // 客户端到达状态
-                        if (selectionKey.isValid && selectionKey.isAcceptable) {
-                            val serverSocketChannel = selectionKey.channel() as ServerSocketChannel
-                            // 非阻塞状态拿到客户端连接
-                            val socketChannel = serverSocketChannel.accept()
-
-                            try {
-                                // 客户端构建异步线程
-                                val clientHandler = ClientHandler(socketChannel,
-                                        this@TcpServer, this@TcpServer.cachePath)
-                                // 添加同步处理
-                                synchronized(this@TcpServer) {
-                                    this@TcpServer.clientHandlerList.add(clientHandler)
-                                    println("当前客户端数量：${this@TcpServer.clientHandlerList.size}")
-                                }
-                            } catch (e: IOException) {
-                                e.printStackTrace()
-                                println("客户端连接异常:${e.message}")
-                            }
-                        }
-                    }
-                } catch (e: IOException) {
-                    e.printStackTrace()
+                    true
                 }
-            } while (!done)
-
-            println("服务器已关闭！")
+                str.startsWith(COMMAND_GROUP_LEAVE) -> {
+                    val group:Group = groups[DEFAULT_GROUP_NAME]!!
+                    if(group.removeMember(handler)){
+                        sendMessageToClient(handler,"Leave Group:${group.getName()}")
+                    }
+                    true
+                }
+                else -> false
+            }
         }
 
-        fun exit() {
-            done = true
-            // 唤醒当前的阻塞
-            selector!!.wakeup()
+        override fun consumeAgain(handler: ClientHandler, model: StringReceivePacket): Boolean {
+            // 捡漏的模式，当我们第一次未消费，然后又没有加入群，自然没有后续的节点消费
+            // 此时我们进行第二次消费，返回发送过来的消息
+            sendMessageToClient(handler,model.entity()!!)
+            return true
         }
     }
 }

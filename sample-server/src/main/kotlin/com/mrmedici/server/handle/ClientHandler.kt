@@ -1,33 +1,40 @@
 package server.handle
 
+import com.mrmedici.clink.box.StringReceivePacket
 import com.mrmedici.clink.core.Connector
 import com.mrmedici.clink.core.ReceivePacket
 import com.mrmedici.clink.core.TYPE_MEMORY_STRING
 import com.mrmedici.clink.utils.CloseUtils
 import com.mrmedici.foo.Foo
+import com.mrmedici.server.handle.DefaultNonConnectorStringPacketChain
+import com.mrmedici.server.handle.DefaultPrintConnectorCloseChain
 import java.io.*
 import java.net.Socket
 import java.nio.ByteBuffer
 import java.nio.channels.SelectionKey
 import java.nio.channels.Selector
 import java.nio.channels.SocketChannel
+import java.util.concurrent.Executor
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 class ClientHandler(private val socketChannel: SocketChannel,
-                    private val clientHandlerCallback: ClientHandlerCallback,
+                    private val deliveryPool:Executor,
                     private val cachePath:File):Connector(){
 
     private val clientInfo = socketChannel.remoteAddress.toString()
+    val closeChain = DefaultPrintConnectorCloseChain()
+    val stringPacketChain = DefaultNonConnectorStringPacketChain()
 
     init {
         setup(socketChannel)
-        println("新客户端连接：$clientInfo")
     }
+
+    fun getClientInfo() = clientInfo
 
     override fun onChannelClosed(channel: SocketChannel) {
         super.onChannelClosed(channel)
-        exitBySelf()
+        closeChain.handle(this,this)
     }
 
     override fun createNewReceiveFile(): File {
@@ -36,27 +43,20 @@ class ClientHandler(private val socketChannel: SocketChannel,
 
     override fun onReceivedPacket(packet: ReceivePacket<*, *>) {
         super.onReceivedPacket(packet)
-        if(packet.type() == TYPE_MEMORY_STRING){
-            val str:String? = packet.entity() as String
-            str?.let{
-                // println("$key:$str")
-                clientHandlerCallback.onNewMessageArrived(this,str)
-            }
+        when(packet.type()){
+            TYPE_MEMORY_STRING -> deliveryStringPacket(packet as StringReceivePacket)
+            else -> println("New Packet:${packet.type()}-${packet.length()}")
         }
     }
 
-    private fun exitBySelf(){
-        exit()
-        clientHandlerCallback.onSelfClosed(this)
+    private fun deliveryStringPacket(packet:StringReceivePacket){
+        deliveryPool.execute{
+            stringPacketChain.handle(this@ClientHandler,packet)
+        }
     }
 
     fun exit(){
         CloseUtils.close(this)
-        println("客户端已退出：$clientInfo")
+        closeChain.handle(this,this)
     }
-}
-
-interface ClientHandlerCallback {
-    fun onSelfClosed(clientHandler: ClientHandler)
-    fun onNewMessageArrived(clientHandler: ClientHandler,msg:String)
 }

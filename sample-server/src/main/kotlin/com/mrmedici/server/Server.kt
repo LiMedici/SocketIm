@@ -2,6 +2,7 @@ package server
 
 import com.mrmedici.clink.core.IoContext
 import com.mrmedici.clink.impl.IoSelectorProvider
+import com.mrmedici.foo.COMMAND_EXIT
 import com.mrmedici.foo.Foo
 import com.mrmedici.foo.FooGui
 import constants.TCPConstants
@@ -31,10 +32,12 @@ fun main(args: Array<String>) {
     var str:String
     do{
         str = bufferedReader.readLine()
-        if(str == null ||
-                str.isEmpty() ||
-                "00bye00".equals(str,true)){
+        if(str == null || COMMAND_EXIT.equals(str,true)){
             break
+        }
+
+        if(str.isEmpty()){
+            continue
         }
 
         tcpServer.broadcast(str)

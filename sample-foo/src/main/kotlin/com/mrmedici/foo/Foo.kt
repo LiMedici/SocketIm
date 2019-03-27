@@ -5,6 +5,11 @@ import java.lang.RuntimeException
 import java.util.*
 
 const val CACHE_DIR:String = "cache"
+const val COMMAND_EXIT = "00bye00"
+
+const val COMMAND_GROUP_JOIN = "--m g join"
+const val COMMAND_GROUP_LEAVE = "--m g leave"
+const val DEFAULT_GROUP_NAME = "SOCKET"
 
 class Foo{
     companion object {

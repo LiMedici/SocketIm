@@ -8,6 +8,7 @@ import com.mrmedici.clink.impl.OnChannelStatusChangedListener
 import com.mrmedici.clink.impl.SocketChannelAdapter
 import com.mrmedici.clink.impl.async.AsyncReceiveDispatcher
 import com.mrmedici.clink.impl.async.AsyncSendDispatcher
+import com.mrmedici.clink.utils.CloseUtils
 import java.io.Closeable
 import java.io.File
 import java.io.IOException
@@ -15,7 +16,7 @@ import java.nio.channels.SocketChannel
 import java.util.*
 
 abstract class Connector : OnChannelStatusChangedListener,Closeable{
-    protected val key = UUID.randomUUID()!!
+    private val key = UUID.randomUUID()!!
     private var channel:SocketChannel? = null
     private var sender:Sender? = null
     private var receiver:Receiver? = null
@@ -50,7 +51,7 @@ abstract class Connector : OnChannelStatusChangedListener,Closeable{
     }
 
     override fun onChannelClosed(channel: SocketChannel) {
-
+        CloseUtils.close(this)
     }
 
     override fun close() {
@@ -85,4 +86,6 @@ abstract class Connector : OnChannelStatusChangedListener,Closeable{
     protected open fun onReceivedPacket(packet:ReceivePacket<*,*>){
         // println("$key:[New Packet]-Type:${packet.type()}, Length:${packet.length()}")
     }
+
+    fun getKey(): UUID = key
 }
