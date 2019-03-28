@@ -106,7 +106,7 @@ class TcpServer(private val port: Int,
             clientHandler.closeChain.appendLast(RemoveQueueOnConnectorCloseChain())
 
             // 添加同步处理
-            synchronized(this@TcpServer) {
+            synchronized(clientHandlerList) {
                 this@TcpServer.clientHandlerList.add(clientHandler)
                 println("当前客户端数量：${this@TcpServer.clientHandlerList.size}")
             }

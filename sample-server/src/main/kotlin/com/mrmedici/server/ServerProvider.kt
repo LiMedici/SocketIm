@@ -27,7 +27,7 @@ class ServerProvider {
             PROVIDER_INSTANCE = null
         }
 
-        private class Provider(sn: String, port: Int) : Thread() {
+        private class Provider(sn: String, port: Int) : Thread("Server-UDPProvider-Thread") {
 
             private val sn: ByteArray = sn.toByteArray()
             private val port: Int = port
