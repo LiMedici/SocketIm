@@ -13,6 +13,8 @@ interface SendDispatcher : Closeable{
      * @param packet 数据
      */
     fun send(packet:SendPacket<*>)
+
+    fun sendHeartbeat()
     /**
      * 取消发送数据
      * @param packet 数据

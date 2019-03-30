@@ -24,6 +24,16 @@ class AsyncSendDispatcher(private val sender: Sender) : SendDispatcher,
         requestSend()
     }
 
+    override fun sendHeartbeat() {
+        if(queue.size > 0){
+            return
+        }
+
+        if(reader.requestSendHeartbeatFrame()){
+            requestSend()
+        }
+    }
+
     override fun cancel(packet: SendPacket<*>) {
         var ret = queue.remove(packet)
         if (ret) {

@@ -2,29 +2,29 @@ package server
 
 import com.mrmedici.clink.box.StringReceivePacket
 import com.mrmedici.clink.core.Connector
+import com.mrmedici.clink.core.schedule.IdleTimeoutScheduleJob
 import com.mrmedici.clink.utils.CloseUtils
 import com.mrmedici.foo.COMMAND_GROUP_JOIN
 import com.mrmedici.foo.COMMAND_GROUP_LEAVE
 import com.mrmedici.foo.DEFAULT_GROUP_NAME
 import com.mrmedici.server.*
-import com.mrmedici.server.handle.ConnectorCloseChain
-import com.mrmedici.server.handle.ConnectorStringPacketChain
-import server.handle.ClientHandler
+import com.mrmedici.foo.handle.ConnectorCloseChain
+import com.mrmedici.foo.handle.ConnectorStringPacketChain
+import server.handle.ConnectorHandler
 import java.io.File
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.nio.channels.SelectionKey
-import java.nio.channels.Selector
 import java.nio.channels.ServerSocketChannel
 import java.nio.channels.SocketChannel
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class TcpServer(private val port: Int,
                 private val cachePath: File) : AcceptListener,GroupMessageAdapter {
     private lateinit var accepter: ServerAccepter
     private var server: ServerSocketChannel? = null
-    private val clientHandlerList = ArrayList<ClientHandler>()
-    private val deliveryPool = Executors.newSingleThreadExecutor()
+    private val clientHandlerList = ArrayList<ConnectorHandler>()
     private val statistics = ServerStatistics()
     private val groups = HashMap<String,Group>()
 
@@ -69,24 +69,27 @@ class TcpServer(private val port: Int,
     fun stop() {
         accepter.exit()
 
+        var connectorHandlers:Array<ConnectorHandler?> = arrayOfNulls<ConnectorHandler>(0)
         synchronized(clientHandlerList) {
-            clientHandlerList.forEach { it.exit() }
+            connectorHandlers = clientHandlerList.toArray(connectorHandlers)
             clientHandlerList.clear()
         }
 
+        connectorHandlers.forEach { it?.exit() }
         CloseUtils.close(server!!)
-
-        deliveryPool.shutdownNow()
     }
 
     fun broadcast(str: String) {
         val notificationStr = "系统通知: $str"
-        synchronized(clientHandlerList){
-            clientHandlerList.forEach { sendMessageToClient(it,notificationStr) }
+        var connectorHandlers:Array<ConnectorHandler?> = arrayOfNulls<ConnectorHandler>(0)
+        synchronized(clientHandlerList) {
+            connectorHandlers = clientHandlerList.toArray(connectorHandlers)
         }
+
+        connectorHandlers.forEach { sendMessageToClient(it!!,notificationStr) }
     }
 
-    override fun sendMessageToClient(handler: ClientHandler,msg:String){
+    override fun sendMessageToClient(handler: ConnectorHandler, msg:String){
         handler.send(msg)
         statistics.sendSize++
     }
@@ -98,12 +101,16 @@ class TcpServer(private val port: Int,
     override fun onNewSocketArrived(channel: SocketChannel) {
         try {
             // 客户端构建异步线程
-            val clientHandler = ClientHandler(channel, deliveryPool,this@TcpServer.cachePath)
+            val clientHandler = ConnectorHandler(channel,this@TcpServer.cachePath)
             println("${clientHandler.getClientInfo()}:Connected!")
 
             clientHandler.stringPacketChain.appendLast(statistics.statisticsChain())
                     .appendLast(ParseCommandConnectorStringPacketChain())
             clientHandler.closeChain.appendLast(RemoveQueueOnConnectorCloseChain())
+
+            val scheduleJob = IdleTimeoutScheduleJob(20,TimeUnit.SECONDS,clientHandler)
+            clientHandler.schedule(scheduleJob)
+
 
             // 添加同步处理
             synchronized(clientHandlerList) {
@@ -117,7 +124,7 @@ class TcpServer(private val port: Int,
     }
 
     private inner class RemoveQueueOnConnectorCloseChain : ConnectorCloseChain(){
-        override fun consume(handler: ClientHandler, model: Connector): Boolean {
+        override fun consume(handler: ConnectorHandler, model: Connector): Boolean {
             synchronized(this@TcpServer.clientHandlerList){
                 this@TcpServer.clientHandlerList.remove(handler)
                 // 移除群聊的客户端
@@ -129,7 +136,7 @@ class TcpServer(private val port: Int,
     }
 
     private inner class ParseCommandConnectorStringPacketChain : ConnectorStringPacketChain(){
-        override fun consume(handler: ClientHandler, model: StringReceivePacket): Boolean {
+        override fun consume(handler: ConnectorHandler, model: StringReceivePacket): Boolean {
             val str:String? = model.entity()
             return when {
                 str == null -> false
@@ -151,7 +158,7 @@ class TcpServer(private val port: Int,
             }
         }
 
-        override fun consumeAgain(handler: ClientHandler, model: StringReceivePacket): Boolean {
+        override fun consumeAgain(handler: ConnectorHandler, model: StringReceivePacket): Boolean {
             // 捡漏的模式，当我们第一次未消费，然后又没有加入群，自然没有后续的节点消费
             // 此时我们进行第二次消费，返回发送过来的消息
             sendMessageToClient(handler,model.entity()!!)

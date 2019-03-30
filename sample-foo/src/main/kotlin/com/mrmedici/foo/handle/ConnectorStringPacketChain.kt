@@ -1,4 +1,4 @@
-package com.mrmedici.server.handle
+package com.mrmedici.foo.handle
 
 import com.mrmedici.clink.box.StringReceivePacket
 

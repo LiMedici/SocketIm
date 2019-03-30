@@ -1,11 +1,14 @@
 package client
 
 import client.bean.ServerInfo
+import com.mrmedici.clink.box.StringReceivePacket
 import com.mrmedici.clink.core.Connector
 import com.mrmedici.clink.core.ReceivePacket
 import com.mrmedici.clink.core.TYPE_MEMORY_STRING
 import com.mrmedici.clink.utils.CloseUtils
 import com.mrmedici.foo.Foo
+import com.mrmedici.foo.handle.ConnectorStringPacketChain
+import server.handle.ConnectorHandler
 import java.io.*
 import java.net.Inet4Address
 import java.net.InetSocketAddress
@@ -13,34 +16,19 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 import java.nio.channels.SocketChannel
 
-class TCPClient(private val socketChannel: SocketChannel,
-                private val cachePath:File) : Connector(){
+class TCPClient(socketChannel: SocketChannel,
+                cachePath:File) : ConnectorHandler(socketChannel,cachePath){
 
     init {
-        setup(socketChannel)
+        stringPacketChain.appendLast(PrintStringPacketChain())
     }
 
-    override fun onChannelClosed(channel: SocketChannel) {
-        super.onChannelClosed(channel)
-        println("连接已关闭，无法读取数据！")
-    }
-
-    override fun createNewReceiveFile(): File {
-        return Foo.createRandomTemp(cachePath)
-    }
-
-    override fun onReceivedPacket(packet: ReceivePacket<*, *>) {
-        super.onReceivedPacket(packet)
-        if(packet.type() == TYPE_MEMORY_STRING){
-            val str:String? = packet.entity() as String
-            str?.let{
-                println("${getKey()}:$str")
-            }
+    private class PrintStringPacketChain : ConnectorStringPacketChain(){
+        override fun consume(handler: ConnectorHandler, model: StringReceivePacket): Boolean {
+            val str:String? = model.entity()?:return false
+            println(str)
+            return true
         }
-    }
-
-    fun exit(){
-        CloseUtils.close(this)
     }
 
     companion object {

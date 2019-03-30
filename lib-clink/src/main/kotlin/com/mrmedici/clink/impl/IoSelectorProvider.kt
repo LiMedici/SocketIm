@@ -29,9 +29,9 @@ class IoSelectorProvider : IoProvider {
     private val outputCallbackMap = HashMap<SelectionKey, Runnable>()
 
     private val inputHandlePool = Executors.newFixedThreadPool(20,
-            IoProviderThreadFactory("IoProvider-Input-Thread-"))
+            NameableThreadFactory("IoProvider-Input-Thread-"))
     private val outputHandlePool = Executors.newFixedThreadPool(20,
-            IoProviderThreadFactory("IoProvider-Output-Thread-"))
+            NameableThreadFactory("IoProvider-Output-Thread-"))
 
     init {
         startRead()
@@ -238,25 +238,5 @@ private class SelectThread(name: String,
                 break
             }
         }
-    }
-}
-
-internal class IoProviderThreadFactory(namePrefix: String) : ThreadFactory {
-    private val group: ThreadGroup
-    private val threadNumber = AtomicInteger(1)
-    private val namePrefix: String
-
-    init {
-        val manager = System.getSecurityManager()
-        group = if (manager != null) manager.threadGroup
-        else Thread.currentThread().threadGroup
-        this.namePrefix = namePrefix
-    }
-
-    override fun newThread(runnable: Runnable): Thread {
-        val thread = Thread(group, runnable, namePrefix + threadNumber.getAndIncrement(), 0)
-        if (thread.isDaemon) thread.isDaemon = false
-        if (thread.priority != Thread.NORM_PRIORITY) thread.priority = Thread.NORM_PRIORITY
-        return thread
     }
 }

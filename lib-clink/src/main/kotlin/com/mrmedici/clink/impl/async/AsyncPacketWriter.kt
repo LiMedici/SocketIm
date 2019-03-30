@@ -4,10 +4,7 @@ import com.mrmedici.clink.core.FRAME_HEADER_LENGTH
 import com.mrmedici.clink.core.Frame
 import com.mrmedici.clink.core.IoArgs
 import com.mrmedici.clink.core.ReceivePacket
-import com.mrmedici.clink.frames.CancelReceiveFrame
-import com.mrmedici.clink.frames.ReceiveEntityFrame
-import com.mrmedici.clink.frames.ReceiveFrameFactory
-import com.mrmedici.clink.frames.ReceiveHeaderFrame
+import com.mrmedici.clink.frames.*
 import java.io.Closeable
 import java.io.IOException
 import java.nio.channels.Channels
@@ -23,6 +20,7 @@ class AsyncPacketWriter(private val provider: PacketProvider) : Closeable {
     interface PacketProvider {
         fun taskPacket(type: Byte, length: Long, headerInfo: ByteArray?): ReceivePacket<*, *>
         fun completedPacket(packet: ReceivePacket<*, *>, isSucceed: Boolean)
+        fun onReceiveHeartbeat()
     }
 
     @Synchronized
@@ -76,12 +74,19 @@ class AsyncPacketWriter(private val provider: PacketProvider) : Closeable {
 
     private fun buildNewFrame(args: IoArgs): Frame? {
         val frame = ReceiveFrameFactory.createInstance(args)
-        if(frame is CancelReceiveFrame){
-            cancelReceivePacket(frame.getBodyIdentifier())
-            return null
-        }else if(frame is ReceiveEntityFrame){
-            val channel = getPacketChannel(frame.getBodyIdentifier())
-            frame.bindPacketChannel(channel)
+        when (frame) {
+            is CancelReceiveFrame -> {
+                cancelReceivePacket(frame.getBodyIdentifier())
+                return null
+            }
+            is HeartbeatReceiveFrame -> {
+                provider.onReceiveHeartbeat()
+                return null
+            }
+            is ReceiveEntityFrame -> {
+                val channel = getPacketChannel(frame.getBodyIdentifier())
+                frame.bindPacketChannel(channel)
+            }
         }
 
         return frame

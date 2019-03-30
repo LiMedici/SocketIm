@@ -9,4 +9,6 @@ interface Receiver : Closeable{
 
     @Throws(IOException::class)
     fun postReceiveAsync():Boolean
+
+    fun getLastReadTime():Long
 }

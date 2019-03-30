@@ -80,4 +80,8 @@ class AsyncReceiveDispatcher(private val receiver:Receiver,
         CloseUtils.close(packet)
         callback.onReceivePacketCompleted(packet)
     }
+
+    override fun onReceiveHeartbeat() {
+        callback.onReceiveHeartbeat()
+    }
 }

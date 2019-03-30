@@ -8,4 +8,6 @@ interface Sender : Closeable{
 
     @Throws(IOException::class)
     fun postSendAsync():Boolean
+
+    fun getLastWriteTime():Long
 }

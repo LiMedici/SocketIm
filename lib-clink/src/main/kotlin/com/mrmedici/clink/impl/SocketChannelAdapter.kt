@@ -16,6 +16,11 @@ class SocketChannelAdapter(private val channel: SocketChannel,
     private lateinit var receiveIoEventProcessor: IoArgsEventProcessor
     private lateinit var sendIoEventLisProcessor: IoArgsEventProcessor
 
+    @Volatile
+    private var lastReadTime = System.currentTimeMillis()
+    @Volatile
+    private var lastWriteTime = System.currentTimeMillis()
+
     init {
         channel.configureBlocking(false)
     }
@@ -39,6 +44,10 @@ class SocketChannelAdapter(private val channel: SocketChannel,
         return ioProvider.registerOutput(channel, outputCallback)
     }
 
+    override fun getLastWriteTime(): Long {
+        return lastWriteTime
+    }
+
     @Throws(IOException::class)
     override fun postReceiveAsync(): Boolean {
         if (isClosed.get()) {
@@ -48,6 +57,10 @@ class SocketChannelAdapter(private val channel: SocketChannel,
         // 进行Callback状态监测，监测是否处于自循环状态
         inputCallback.checkAttachNull()
         return ioProvider.registerInput(channel, inputCallback)
+    }
+
+    override fun getLastReadTime():Long {
+        return lastReadTime
     }
 
     override fun close() {
@@ -68,6 +81,8 @@ class SocketChannelAdapter(private val channel: SocketChannel,
             if (isClosed.get()) {
                 return
             }
+
+            lastReadTime = System.currentTimeMillis()
 
             val processor = this@SocketChannelAdapter.receiveIoEventProcessor
             var ioArgs:IoArgs? = args
@@ -110,6 +125,8 @@ class SocketChannelAdapter(private val channel: SocketChannel,
             if (isClosed.get()) {
                 return
             }
+
+            lastWriteTime = System.currentTimeMillis()
 
             val processor = this@SocketChannelAdapter.sendIoEventLisProcessor
             var ioArgs:IoArgs? = args

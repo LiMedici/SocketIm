@@ -1,7 +1,6 @@
 package com.mrmedici.server
 
 import com.mrmedici.clink.utils.CloseUtils
-import server.handle.ClientHandler
 import java.io.IOException
 import java.nio.channels.Selector
 import java.nio.channels.ServerSocketChannel

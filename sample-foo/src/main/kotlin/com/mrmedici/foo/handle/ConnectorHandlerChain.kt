@@ -1,7 +1,6 @@
-package com.mrmedici.server.handle
+package com.mrmedici.foo.handle
 
-import com.sun.org.apache.xpath.internal.operations.Mod
-import server.handle.ClientHandler
+import server.handle.ConnectorHandler
 
 abstract class ConnectorHandlerChain<Model>{
 
@@ -45,7 +44,7 @@ abstract class ConnectorHandlerChain<Model>{
     }
 
     @Synchronized
-    fun handle(handler:ClientHandler,model:Model):Boolean{
+    fun handle(handler:ConnectorHandler, model:Model):Boolean{
         val next:ConnectorHandlerChain<Model>? = this.next
 
         // 自己消费
@@ -63,9 +62,9 @@ abstract class ConnectorHandlerChain<Model>{
         return consumeAgain(handler,model)
     }
 
-    protected abstract fun consume(handler:ClientHandler,model:Model):Boolean
+    protected abstract fun consume(handler:ConnectorHandler, model:Model):Boolean
 
-    protected open fun consumeAgain(handler:ClientHandler,model:Model):Boolean{
+    protected open fun consumeAgain(handler:ConnectorHandler, model:Model):Boolean{
         return false
     }
 

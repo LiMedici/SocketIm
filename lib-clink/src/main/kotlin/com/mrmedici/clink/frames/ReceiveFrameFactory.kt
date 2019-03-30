@@ -9,9 +9,10 @@ class ReceiveFrameFactory{
             args.readTo(buffer,0)
             val type = buffer[2]
             return when(type){
-                TYPE_COMMAND_SEND_CANCEL -> CancelReceiveFrame(buffer)
                 TYPE_PACKET_HEADER -> ReceiveHeaderFrame(buffer)
                 TYPE_PACKET_ENTITY -> ReceiveEntityFrame(buffer)
+                TYPE_COMMAND_SEND_CANCEL -> CancelReceiveFrame(buffer)
+                TYPE_COMMAND_HEARTBEAT -> HeartbeatReceiveFrame
                 else -> throw UnsupportedOperationException("Unsupported frame type:$type")
             }
         }

@@ -14,6 +14,7 @@ interface ReceiveDispatcher : Closeable{
     interface ReceivePacketCallback{
         fun onArrivedNewPacket(type:Byte,length:Long):ReceivePacket<*,*>
         fun onReceivePacketCompleted(packet:ReceivePacket<*,*>)
+        fun onReceiveHeartbeat()
     }
 
 }

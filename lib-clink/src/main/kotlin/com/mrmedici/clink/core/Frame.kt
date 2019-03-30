@@ -13,6 +13,8 @@ const val TYPE_PACKET_ENTITY:Byte = 12
 const val TYPE_COMMAND_SEND_CANCEL:Byte = 41
 const val TYPE_COMMAND_RECEIVE_REJECT:Byte = 42
 
+const val TYPE_COMMAND_HEARTBEAT:Byte = 81
+
 const val FLAG_NONE:Byte = 0
 
 abstract class Frame(){

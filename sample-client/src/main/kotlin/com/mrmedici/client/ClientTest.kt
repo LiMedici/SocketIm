@@ -3,7 +3,9 @@ package com.mrmedici.client
 import client.ClientSearcher
 import client.TCPClient
 import com.mrmedici.clink.core.IoContext
+import com.mrmedici.clink.core.schedule.IdleTimeoutScheduleJob
 import com.mrmedici.clink.impl.IoSelectorProvider
+import com.mrmedici.clink.impl.SchedulerImpl
 import com.mrmedici.foo.Foo
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -15,6 +17,7 @@ fun main(args: Array<String>) {
 
     IoContext.setup()
             .ioProvider(IoSelectorProvider())
+            .scheduler(SchedulerImpl(1))
             .start()
 
     val info = ClientSearcher.searchServer(10000)
@@ -27,6 +30,10 @@ fun main(args: Array<String>) {
     for (index in 0 until 200){
         try {
             val tcpClient = TCPClient.startWith(info,cachePath) ?: throw NullPointerException()
+
+            val scheduleJob = IdleTimeoutScheduleJob(10,TimeUnit.SECONDS,tcpClient)
+            tcpClient.schedule(scheduleJob)
+
             tcpClients.add(tcpClient)
             println("连接成功：${++counter}")
         }catch (e:IOException){

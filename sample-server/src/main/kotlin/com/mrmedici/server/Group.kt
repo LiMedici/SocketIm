@@ -1,17 +1,17 @@
 package com.mrmedici.server
 
 import com.mrmedici.clink.box.StringReceivePacket
-import com.mrmedici.server.handle.ConnectorStringPacketChain
-import server.handle.ClientHandler
+import com.mrmedici.foo.handle.ConnectorStringPacketChain
+import server.handle.ConnectorHandler
 
 class Group(private val name:String,
             private val adapter:GroupMessageAdapter){
 
-    private val members = ArrayList<ClientHandler>()
+    private val members = ArrayList<ConnectorHandler>()
 
     fun getName():String = name
 
-    fun addMember(handler: ClientHandler):Boolean{
+    fun addMember(handler: ConnectorHandler):Boolean{
         synchronized(members){
             if(!members.contains(handler)){
                 members.add(handler)
@@ -23,7 +23,7 @@ class Group(private val name:String,
         return false
     }
 
-    fun removeMember(handler: ClientHandler):Boolean{
+    fun removeMember(handler: ConnectorHandler):Boolean{
         synchronized(members){
             if(members.remove(handler)){
                 handler.stringPacketChain.remove(ForwardConnectorStringPacketChain::class.java)
@@ -36,7 +36,7 @@ class Group(private val name:String,
     }
 
     private inner class ForwardConnectorStringPacketChain : ConnectorStringPacketChain(){
-        override fun consume(handler: ClientHandler, model: StringReceivePacket): Boolean {
+        override fun consume(handler: ConnectorHandler, model: StringReceivePacket): Boolean {
             synchronized(members){
                 for (member in members){
                     if(member === handler) continue
@@ -50,5 +50,5 @@ class Group(private val name:String,
 }
 
 interface GroupMessageAdapter{
-    fun sendMessageToClient(handler: ClientHandler,msg:String)
+    fun sendMessageToClient(handler: ConnectorHandler, msg:String)
 }

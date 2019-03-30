@@ -1,9 +1,8 @@
 package com.mrmedici.server
 
 import com.mrmedici.clink.box.StringReceivePacket
-import com.mrmedici.server.handle.ConnectorStringPacketChain
-import com.mrmedici.server.handle.DefaultNonConnectorStringPacketChain
-import server.handle.ClientHandler
+import com.mrmedici.foo.handle.ConnectorStringPacketChain
+import server.handle.ConnectorHandler
 
 class ServerStatistics{
     var sendSize: Long = 0
@@ -14,7 +13,7 @@ class ServerStatistics{
     }
 
     inner class StatisticsConnectorStringPacketChain : ConnectorStringPacketChain(){
-        override fun consume(handler: ClientHandler, model: StringReceivePacket): Boolean {
+        override fun consume(handler: ConnectorHandler, model: StringReceivePacket): Boolean {
             // 接收数据自增
             receiveSize++
             return false

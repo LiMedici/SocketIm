@@ -2,6 +2,7 @@ package server
 
 import com.mrmedici.clink.core.IoContext
 import com.mrmedici.clink.impl.IoSelectorProvider
+import com.mrmedici.clink.impl.SchedulerImpl
 import com.mrmedici.foo.COMMAND_EXIT
 import com.mrmedici.foo.Foo
 import com.mrmedici.foo.FooGui
@@ -14,6 +15,7 @@ fun main(args: Array<String>) {
 
     IoContext.setup()
              .ioProvider(IoSelectorProvider())
+             .scheduler(SchedulerImpl(1))
              .start()
 
     val tcpServer = TcpServer(TCPConstants.PORT_SERVER,cachePath)

@@ -5,11 +5,18 @@ import com.mrmedici.clink.core.Frame
 import com.mrmedici.clink.core.IoArgs
 import java.io.IOException
 
-abstract class AbsSendFrame(length: Int, type: Byte, flag: Byte, identifier: Short) : Frame(length, type, flag, identifier) {
+abstract class AbsSendFrame : Frame{
+
     @Volatile
     protected var headerRemaining:Int = FRAME_HEADER_LENGTH
     @Volatile
-    protected var bodyRemaining:Int = length
+    protected var bodyRemaining:Int = 0
+
+    constructor(header:ByteArray) : super(header)
+
+    constructor(length: Int, type: Byte, flag: Byte, identifier: Short) : super(length, type, flag, identifier){
+        bodyRemaining = length
+    }
 
     @Synchronized
     override fun handle(args: IoArgs):Boolean {

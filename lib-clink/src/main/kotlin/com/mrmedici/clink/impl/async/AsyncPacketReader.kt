@@ -3,11 +3,9 @@ package com.mrmedici.clink.impl.async
 import com.mrmedici.clink.core.Frame
 import com.mrmedici.clink.core.IoArgs
 import com.mrmedici.clink.core.SendPacket
+import com.mrmedici.clink.core.TYPE_COMMAND_HEARTBEAT
 import com.mrmedici.clink.core.ds.BytePriorityNode
-import com.mrmedici.clink.frames.AbsSendPacketFrame
-import com.mrmedici.clink.frames.CancelSendFrame
-import com.mrmedici.clink.frames.SendEntityFrame
-import com.mrmedici.clink.frames.SendHeaderFrame
+import com.mrmedici.clink.frames.*
 import java.io.Closeable
 import java.io.IOException
 
@@ -41,6 +39,22 @@ class AsyncPacketReader(private val provider: PacketProvider) : Closeable {
 
         synchronized(this) {
             return nodeSize != 0
+        }
+    }
+
+    fun requestSendHeartbeatFrame():Boolean{
+        synchronized(this){
+            var x = node
+            while (x != null) {
+                val frame = x.item
+                if(frame.getBodyType() == TYPE_COMMAND_HEARTBEAT){
+                    return false
+                }
+                x = x.next
+            }
+
+            appendNewFrame(HeartbeatSendFrame())
+            return true
         }
     }
 
