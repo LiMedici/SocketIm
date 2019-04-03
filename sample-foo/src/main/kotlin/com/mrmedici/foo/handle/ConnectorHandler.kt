@@ -31,16 +31,20 @@ open class ConnectorHandler(private val socketChannel: SocketChannel,
         closeChain.handle(this,this)
     }
 
-    override fun createNewReceiveFile(): File {
-        return Foo.createRandomTemp(cachePath)
-    }
-
     override fun onReceivedPacket(packet: ReceivePacket<*, *>) {
         super.onReceivedPacket(packet)
         when(packet.type()){
             TYPE_MEMORY_STRING -> deliveryStringPacket(packet as StringReceivePacket)
             else -> println("New Packet:${packet.type()}-${packet.length()}")
         }
+    }
+
+    override fun createNewReceiveFile(length:Long,headerInfo:ByteArray?): File {
+        return Foo.createRandomTemp(cachePath)
+    }
+
+    override fun createNewReceiveDirectOutputStream(length: Long, headerInfo: ByteArray?): OutputStream {
+        return ByteArrayOutputStream()
     }
 
     private fun deliveryStringPacket(packet:StringReceivePacket){

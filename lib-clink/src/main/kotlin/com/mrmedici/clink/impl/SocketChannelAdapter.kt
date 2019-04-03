@@ -13,8 +13,8 @@ class SocketChannelAdapter(private val channel: SocketChannel,
 
     private val isClosed = AtomicBoolean(false)
 
-    private lateinit var receiveIoEventProcessor: IoArgsEventProcessor
-    private lateinit var sendIoEventLisProcessor: IoArgsEventProcessor
+    private var receiveIoEventProcessor: IoArgsEventProcessor? = null
+    private var sendIoEventLisProcessor: IoArgsEventProcessor? = null
 
     @Volatile
     private var lastReadTime = System.currentTimeMillis()
@@ -25,11 +25,11 @@ class SocketChannelAdapter(private val channel: SocketChannel,
         channel.configureBlocking(false)
     }
 
-    override fun setReceiveListener(processor: IoArgsEventProcessor) {
+    override fun setReceiveListener(processor: IoArgsEventProcessor?) {
         this.receiveIoEventProcessor = processor
     }
 
-    override fun setSendListener(processor: IoArgsEventProcessor) {
+    override fun setSendListener(processor: IoArgsEventProcessor?) {
         this.sendIoEventLisProcessor = processor
     }
 
@@ -84,7 +84,8 @@ class SocketChannelAdapter(private val channel: SocketChannel,
 
             lastReadTime = System.currentTimeMillis()
 
-            val processor = this@SocketChannelAdapter.receiveIoEventProcessor
+            val processor = this@SocketChannelAdapter.receiveIoEventProcessor ?: return
+
             var ioArgs:IoArgs? = args
             if(ioArgs == null){
                 ioArgs = processor.provideIoArgs()
@@ -100,7 +101,7 @@ class SocketChannelAdapter(private val channel: SocketChannel,
                         println("Current read zero data!")
                     }
 
-                    if (ioArgs.remained()) {
+                    if (ioArgs.remained() && ioArgs.isNeedConsumeRemaining()) {
                         // 附加当前未消费完成的args
                         attach = ioArgs
                         // 再次注册数据发送
@@ -128,7 +129,8 @@ class SocketChannelAdapter(private val channel: SocketChannel,
 
             lastWriteTime = System.currentTimeMillis()
 
-            val processor = this@SocketChannelAdapter.sendIoEventLisProcessor
+            val processor = this@SocketChannelAdapter.sendIoEventLisProcessor?:return
+
             var ioArgs:IoArgs? = args
             if(ioArgs == null) {
                 // 拿一份新的IoArgs
@@ -145,7 +147,7 @@ class SocketChannelAdapter(private val channel: SocketChannel,
                         println("Current write zero data!")
                     }
 
-                    if (ioArgs.remained()) {
+                    if (ioArgs.remained() && ioArgs.isNeedConsumeRemaining()) {
                         // 附加当前未消费完成的args
                         attach = ioArgs
                         // 再次注册数据发送

@@ -12,7 +12,7 @@ interface ReceiveDispatcher : Closeable{
     fun stop()
 
     interface ReceivePacketCallback{
-        fun onArrivedNewPacket(type:Byte,length:Long):ReceivePacket<*,*>
+        fun onArrivedNewPacket(type:Byte,length:Long,headerInfo: ByteArray?):ReceivePacket<*,*>
         fun onReceivePacketCompleted(packet:ReceivePacket<*,*>)
         fun onReceiveHeartbeat()
     }

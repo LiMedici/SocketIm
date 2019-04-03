@@ -8,9 +8,21 @@ import java.nio.channels.SocketChannel
 import java.nio.channels.WritableByteChannel
 
 class IoArgs{
+    @Volatile
     private var limit:Int = 255
-    private val byteBuffer = ByteArray(limit)
-    private val buffer = ByteBuffer.wrap(byteBuffer)
+    // 是否需要消费所有的区间(读取，写入)
+    private val isNeedConsumeRemaining:Boolean
+    private val buffer:ByteBuffer
+
+    constructor():this(256)
+
+    constructor(size:Int):this(size,false)
+
+    constructor(size:Int,isNeedConsumeRemaining:Boolean){
+        this.limit = size
+        this.isNeedConsumeRemaining = isNeedConsumeRemaining
+        this.buffer = ByteBuffer.allocate(size)
+    }
 
     fun writeFrom(bytes:ByteArray,offset:Int,count:Int):Int{
         var size:Int = Math.min(count,buffer.remaining())
@@ -121,6 +133,10 @@ class IoArgs{
         this.limit = Math.min(limit,buffer.capacity())
     }
 
+    fun resetLimit(){
+        this.limit = buffer.capacity()
+    }
+
     fun readLength():Int{
         return buffer.int
     }
@@ -132,6 +148,8 @@ class IoArgs{
     fun remained(): Boolean {
         return buffer.hasRemaining()
     }
+
+    fun isNeedConsumeRemaining():Boolean = isNeedConsumeRemaining
 
     fun fillEmpty(size: Int):Int {
         val fillSize = Math.min(size,buffer.remaining())

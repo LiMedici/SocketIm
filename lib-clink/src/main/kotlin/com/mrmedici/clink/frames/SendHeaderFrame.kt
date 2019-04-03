@@ -42,8 +42,14 @@ class SendHeaderFrame(identifier:Short,packet:SendPacket<*>) :
     }
 
     override fun buildNextFrame(): Frame? {
-        val stream = packet.open()
-        val channel = Channels.newChannel(stream)
-        return SendEntityFrame(getBodyIdentifier(),packet.length(),channel,packet)
+        val type = this.packet.type()
+        return if(type == TYPE_STREAM_DIRECT){
+            SendDirectEntityFrame.buildEntityFrame(packet,getBodyIdentifier())
+        }else{
+            val stream = packet.open()
+            val channel = Channels.newChannel(stream)
+            SendEntityFrame(getBodyIdentifier(),packet.length(),channel,packet)
+        }
+
     }
 }

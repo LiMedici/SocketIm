@@ -17,6 +17,8 @@ const val TYPE_STREAM_FILE:Byte = 3
 // 长链接流 类型
 const val TYPE_STREAM_DIRECT:Byte = 4
 
+const val MAX_PACKET_SIZE = (((0xFFL) shl 32) or ((0xFFL) shl 24) or ((0xFFL) shl 16) or ((0xFFL) shl 8) or (0xFFL))
+
 
 abstract class Packet<Stream : Closeable> : Closeable{
 

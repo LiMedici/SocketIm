@@ -73,7 +73,7 @@ class AsyncReceiveDispatcher(private val receiver:Receiver,
     }
 
     override fun taskPacket(type: Byte, length: Long, headerInfo: ByteArray?): ReceivePacket<*, *> {
-        return callback.onArrivedNewPacket(type,length)
+        return callback.onArrivedNewPacket(type,length,headerInfo)
     }
 
     override fun completedPacket(packet: ReceivePacket<*, *>, isSucceed: Boolean) {

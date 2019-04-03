@@ -1,6 +1,5 @@
 package com.mrmedici.clink.core
 
-import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.io.InputStream
 
@@ -17,6 +16,19 @@ abstract class SendPacket<Stream : InputStream> : Packet<Stream>(){
 
     fun isCanceled():Boolean{
         return isCanceled
+    }
+
+    fun available():Int{
+        val stream = this.open()
+        try {
+            val available = stream.available()
+            if(available < 0){
+                return 0
+            }
+            return available
+        }catch (e:IOException){
+            return 0
+        }
     }
 
 }

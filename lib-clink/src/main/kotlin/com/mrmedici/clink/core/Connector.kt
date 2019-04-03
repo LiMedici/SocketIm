@@ -1,17 +1,16 @@
 package com.mrmedici.clink.core
 
-import com.mrmedici.clink.box.BytesReceivePacket
-import com.mrmedici.clink.box.FileReceivePacket
-import com.mrmedici.clink.box.StringReceivePacket
-import com.mrmedici.clink.box.StringSendPacket
+import com.mrmedici.clink.box.*
 import com.mrmedici.clink.impl.OnChannelStatusChangedListener
 import com.mrmedici.clink.impl.SocketChannelAdapter
 import com.mrmedici.clink.impl.async.AsyncReceiveDispatcher
 import com.mrmedici.clink.impl.async.AsyncSendDispatcher
+import com.mrmedici.clink.impl.bridge.BridgeSocketDispatcher
 import com.mrmedici.clink.utils.CloseUtils
 import java.io.Closeable
 import java.io.File
 import java.io.IOException
+import java.io.OutputStream
 import java.nio.channels.SocketChannel
 import java.util.*
 
@@ -42,6 +41,33 @@ abstract class Connector : OnChannelStatusChangedListener, Closeable {
         receiveDispatcher.start()
 
     }
+
+    fun chargeToBridge(){
+        if(receiveDispatcher is BridgeSocketDispatcher) return
+
+        receiveDispatcher.stop()
+
+        val dispatcher = BridgeSocketDispatcher(receiver)
+        receiveDispatcher = dispatcher
+        // 启动
+        dispatcher.start()
+    }
+
+    fun bindToBridge(sender: Sender){
+        if(sender == this.sender){
+            throw UnsupportedOperationException("Can not set current connector sender to bridge")
+        }
+
+        val dispatcher = receiveDispatcher as? BridgeSocketDispatcher ?: throw IllegalStateException("receiveDispatcher is not BridgeSocketDispatcher")
+        dispatcher.bindSender(sender)
+    }
+
+    fun unBindToBridge(){
+        val dispatcher = receiveDispatcher as? BridgeSocketDispatcher ?: throw IllegalStateException("receiveDispatcher is not BridgeSocketDispatcher")
+        dispatcher.bindSender(null)
+    }
+
+    fun getSender():Sender = sender
 
     fun send(msg: String) {
         val packet = StringSendPacket(msg)
@@ -98,16 +124,18 @@ abstract class Connector : OnChannelStatusChangedListener, Closeable {
         channel.close()
     }
 
-    protected abstract fun createNewReceiveFile(): File
+    protected abstract fun createNewReceiveFile(length:Long,headerInfo:ByteArray?): File
+
+    protected abstract fun createNewReceiveDirectOutputStream(length:Long,headerInfo:ByteArray?):OutputStream
 
     private val receivePacketCallback = object : ReceiveDispatcher.ReceivePacketCallback {
 
-        override fun onArrivedNewPacket(type: Byte, length: Long): ReceivePacket<*, *> {
+        override fun onArrivedNewPacket(type: Byte, length: Long,headerInfo: ByteArray?): ReceivePacket<*, *> {
             return when (type) {
                 TYPE_MEMORY_BYTES -> BytesReceivePacket(length)
                 TYPE_MEMORY_STRING -> StringReceivePacket(length)
-                TYPE_STREAM_FILE -> FileReceivePacket(length, createNewReceiveFile())
-                TYPE_STREAM_DIRECT -> BytesReceivePacket(length)
+                TYPE_STREAM_FILE -> FileReceivePacket(length, createNewReceiveFile(length,headerInfo))
+                TYPE_STREAM_DIRECT -> StreamDirectReceivePacket(createNewReceiveDirectOutputStream(length,headerInfo),length)
                 else -> throw UnsupportedOperationException("Unsupported packet type:$type")
             }
         }

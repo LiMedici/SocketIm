@@ -4,12 +4,11 @@ import com.mrmedici.clink.box.StringReceivePacket
 import com.mrmedici.clink.core.Connector
 import com.mrmedici.clink.core.schedule.IdleTimeoutScheduleJob
 import com.mrmedici.clink.utils.CloseUtils
-import com.mrmedici.foo.COMMAND_GROUP_JOIN
-import com.mrmedici.foo.COMMAND_GROUP_LEAVE
-import com.mrmedici.foo.DEFAULT_GROUP_NAME
+import com.mrmedici.foo.*
 import com.mrmedici.server.*
 import com.mrmedici.foo.handle.ConnectorCloseChain
 import com.mrmedici.foo.handle.ConnectorStringPacketChain
+import com.mrmedici.server.audio.AudioRoom
 import server.handle.ConnectorHandler
 import java.io.File
 import java.io.IOException
@@ -106,7 +105,9 @@ class TcpServer(private val port: Int,
 
             clientHandler.stringPacketChain.appendLast(statistics.statisticsChain())
                     .appendLast(ParseCommandConnectorStringPacketChain())
-            clientHandler.closeChain.appendLast(RemoveQueueOnConnectorCloseChain())
+                    .appendLast(ParseAudioStreamCommandStringPacketChain())
+            clientHandler.closeChain.appendLast(RemoveAudioQueueOnConnectorCloseChain())
+                    .appendLast(RemoveQueueOnConnectorCloseChain())
 
             val scheduleJob = IdleTimeoutScheduleJob(20,TimeUnit.SECONDS,clientHandler)
             clientHandler.schedule(scheduleJob)
@@ -117,11 +118,99 @@ class TcpServer(private val port: Int,
                 this@TcpServer.clientHandlerList.add(clientHandler)
                 println("当前客户端数量：${this@TcpServer.clientHandlerList.size}")
             }
+
+            // 回送客户端在服务器端的唯一标志
+            sendMessageToClient(clientHandler, COMMAND_INFO_NAME + clientHandler.getKey().toString())
         } catch (e: IOException) {
             e.printStackTrace()
             println("客户端连接异常:${e.message}")
         }
     }
+
+    private fun findConnectorFromKey(key:String):ConnectorHandler?{
+        synchronized(clientHandlerList){
+            for (handler in clientHandlerList){
+                if(handler.getKey().toString().equals(key,true)){
+                    return handler
+                }
+            }
+        }
+
+        return null
+    }
+
+    // 通过音频命令控制链接寻找数据传输链接，未找到则发送错误
+    private fun findAudioStreamConnector(handler: ConnectorHandler):ConnectorHandler?{
+        val connectorHandler:ConnectorHandler? = this.audioCmdToStreamMap[handler]
+        if(connectorHandler == null){
+            sendMessageToClient(handler, COMMAND_INFO_AUDIO_ERROR)
+            return null
+        }else{
+            return connectorHandler
+        }
+    }
+
+    // 通过音频数据传输流寻找命令控制流
+    private fun findAudioCmdConnector(handler: ConnectorHandler):ConnectorHandler?{
+        return audioStreamToCmdMap[handler]
+    }
+
+    // 创建房间的操作
+    private fun createNewRoom():AudioRoom{
+        var room:AudioRoom
+        do{
+            room = AudioRoom()
+        }while (audioRoomMap.containsKey(room.getRoomCode()))
+        audioRoomMap[room.getRoomCode()] = room
+        return room
+    }
+
+    // 加入房间
+    private fun joinRoom(room: AudioRoom,streamConnector:ConnectorHandler):Boolean{
+        if(room.enterRoom(streamConnector)){
+            audioStreamRoomMap[streamConnector] = room
+            return true
+        }
+        return false
+    }
+
+    fun dissolveRoom(streamConnector: ConnectorHandler){
+        val room = audioStreamRoomMap[streamConnector]
+        room?:return
+
+        val connectors = room.getConnectors()
+        for (connector in connectors){
+            // 解除桥接
+            connector.unBindToBridge()
+            // 移除缓存
+            audioStreamRoomMap.remove(connector)
+            if(connector != streamConnector){
+                // 退出房间，并 获取对方
+                sendStreamConnectorMessage(connector, COMMAND_INFO_AUDIO_STOP)
+            }
+        }
+
+        // 销毁房间
+        audioRoomMap.remove(room.getRoomCode())
+    }
+
+    private fun sendStreamConnectorMessage(streamConnector: ConnectorHandler,msg: String){
+        streamConnector?.let {
+            val audioCmdConnector:ConnectorHandler? = this.findAudioStreamConnector(it)
+            if(audioCmdConnector!=null){
+                sendMessageToClient(audioCmdConnector,msg)
+            }
+        }
+    }
+
+    // 音频命令控制与数据流传输链接映射表
+    private val audioCmdToStreamMap = HashMap<ConnectorHandler,ConnectorHandler>(100)
+    private val audioStreamToCmdMap = HashMap<ConnectorHandler,ConnectorHandler>(100)
+
+    // 房间映射表，房间号-房间的映射
+    private val audioRoomMap = HashMap<String,AudioRoom>(50)
+    // 链接与房间的映射，音视频链接-房间的映射
+    private val audioStreamRoomMap = HashMap<ConnectorHandler,AudioRoom>(50)
 
     private inner class RemoveQueueOnConnectorCloseChain : ConnectorCloseChain(){
         override fun consume(handler: ConnectorHandler, model: Connector): Boolean {
@@ -132,6 +221,22 @@ class TcpServer(private val port: Int,
                 group?.removeMember(handler)
                 return true
             }
+        }
+    }
+
+    private inner class RemoveAudioQueueOnConnectorCloseChain : ConnectorCloseChain(){
+        override fun consume(handler: ConnectorHandler, model: Connector): Boolean {
+            if(audioCmdToStreamMap.containsKey(handler)){
+                // 命令链接断开
+                audioCmdToStreamMap.remove(handler)
+            }else if(audioStreamToCmdMap.containsKey(handler)){
+                // 流断开
+                audioStreamToCmdMap.remove(handler)
+                // 解散房间
+                dissolveRoom(handler)
+            }
+
+            return false
         }
     }
 
@@ -164,5 +269,83 @@ class TcpServer(private val port: Int,
             sendMessageToClient(handler,model.entity()!!)
             return true
         }
+    }
+
+    private inner class ParseAudioStreamCommandStringPacketChain : ConnectorStringPacketChain(){
+        override fun consume(handler: ConnectorHandler, model: StringReceivePacket): Boolean {
+            val str = model.entity()?:return false
+
+            when{
+                str.startsWith(COMMAND_CONNECTOR_BIND) -> {
+                    val key = str.substring(COMMAND_CONNECTOR_BIND.length)
+
+                    val audioStreamConnector = this@TcpServer.findConnectorFromKey(key)
+                    if(audioStreamConnector != null){
+                        // 添加绑定关系
+                        audioCmdToStreamMap[handler] = audioStreamConnector
+                        audioStreamToCmdMap[audioStreamConnector] = handler
+
+                        // 转换为桥接模式
+                        audioStreamConnector.chargeToBridge()
+                    }
+                }
+
+                str.startsWith(COMMAND_AUDIO_CREATE_ROOM) -> {
+                    // 创建房间操作
+                    val audioStreamConnector:ConnectorHandler? = this@TcpServer.findAudioStreamConnector(handler)
+                    if(audioStreamConnector != null){
+                        // 随机创建房间
+                        val room = createNewRoom()
+                        // 加入一个客户端
+                        joinRoom(room,audioStreamConnector)
+                        // 发送成功消息
+                        sendMessageToClient(handler, COMMAND_INFO_AUDIO_ROOM + room.getRoomCode())
+                    }
+                }
+
+                str.startsWith(COMMAND_AUDIO_LEAVE_ROOM) -> {
+                    // 离开房间命令
+                    val audioStreamConnector:ConnectorHandler? = this@TcpServer.findAudioStreamConnector(handler)
+                    if(audioStreamConnector != null){
+                        // 任何一人离开都销毁房间
+                        dissolveRoom(audioStreamConnector)
+                        // 发送成功消息
+                        sendMessageToClient(handler, COMMAND_INFO_AUDIO_STOP)
+                    }
+                }
+
+                str.startsWith(COMMAND_AUDIO_JOIN_ROOM) -> {
+                    // 加入房间操作
+                    val audioStreamConnector = findAudioStreamConnector(handler)
+                    if(audioStreamConnector != null){
+                        // 取得房间号
+                        val roomCode = str.substring(COMMAND_AUDIO_JOIN_ROOM.length)
+                        val room = this@TcpServer.audioRoomMap[roomCode]
+                        // 如果找到了房间，就走后面流程
+                        if(room != null && joinRoom(room,audioStreamConnector)){
+                            // 对方
+                            val theOtherConnector = room.getTheOtherHandler(audioStreamConnector)
+                            theOtherConnector?.let {
+                                // 相互搭建桥接
+                                it.bindToBridge(audioStreamConnector.getSender())
+                                audioStreamConnector.bindToBridge(it.getSender())
+
+                                // 成功加入房间
+                                sendMessageToClient(handler, COMMAND_INFO_AUDIO_START)
+                                // 给对方发送可聊天的消息
+                                sendStreamConnectorMessage(theOtherConnector, COMMAND_INFO_AUDIO_START)
+                            }
+                        }else{
+                            // 放假未找到，或者满员
+                            sendMessageToClient(handler, COMMAND_INFO_AUDIO_ERROR)
+                        }
+
+                    }
+                }
+            }
+
+            return true
+        }
+
     }
 }
