@@ -63,25 +63,25 @@ private fun write(client:TCPClient){
     // 获取键盘输入流
     val input = BufferedReader(InputStreamReader(System.`in`))
 
-    do{
+    do {
         // 键盘读取一行
-        val str:String? = input.readLine()
-        if(str == null || COMMAND_EXIT.equals(str,true)) {
+        val str: String? = input.readLine()
+        if (str == null || COMMAND_EXIT.equals(str, true)) {
             break
         }
 
-        if(str.isEmpty()){
+        if (str.isEmpty()) {
             continue
         }
 
         // abc
         // --f url
-        if(str.startsWith("--f")){
+        if (str.startsWith("--f")) {
             val array = str.split(" ")
-            if(array.size == 2){
+            if (array.size == 2) {
                 val filePath = array[1]
                 val file = File(filePath)
-                if(file.exists() && file.isFile){
+                if (file.exists() && file.isFile) {
                     val packet = FileSendPacket(file)
                     client.send(packet)
                     continue
@@ -91,5 +91,5 @@ private fun write(client:TCPClient){
 
         // 发送字符串
         client.send(str)
-    }while (true)
+    } while (true)
 }
