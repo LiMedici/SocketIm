@@ -5,11 +5,11 @@ import java.lang.RuntimeException
 import java.util.*
 
 // 绑定Stream到一个命令连接(带参数)
-const val COMMAND_CONNECTOR_BIND = "--m c bind"
+const val COMMAND_CONNECTOR_BIND = "--m c bind "
 // 创建对话房间
 const val COMMAND_AUDIO_CREATE_ROOM = "--m a create"
 // 加入对话房间(带参数)
-const val COMMAND_AUDIO_JOIN_ROOM = "--m a join"
+const val COMMAND_AUDIO_JOIN_ROOM = "--m a join "
 // 主动离开对话房间
 const val COMMAND_AUDIO_LEAVE_ROOM = "--m a leave"
 
