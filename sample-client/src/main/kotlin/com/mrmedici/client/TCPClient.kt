@@ -17,10 +17,11 @@ import java.net.SocketTimeoutException
 import java.nio.channels.SocketChannel
 
 class TCPClient(socketChannel: SocketChannel,
-                cachePath:File) : ConnectorHandler(socketChannel,cachePath){
+                cachePath:File,printReceiveString: Boolean) : ConnectorHandler(socketChannel,cachePath){
 
     init {
-        stringPacketChain.appendLast(PrintStringPacketChain())
+        if(printReceiveString)
+            stringPacketChain.appendLast(PrintStringPacketChain())
     }
 
     private class PrintStringPacketChain : ConnectorStringPacketChain(){
@@ -33,7 +34,7 @@ class TCPClient(socketChannel: SocketChannel,
 
     companion object {
         @Throws(IOException::class)
-        fun startWith(info:ServerInfo,cachePath: File):TCPClient?{
+        fun startWith(info:ServerInfo,cachePath: File,printReceiveString:Boolean = true):TCPClient?{
             val socketChannel = SocketChannel.open()
 
             // 链接到本地20000端口，超时时间设置为3秒，超出则抛出异常
@@ -44,7 +45,7 @@ class TCPClient(socketChannel: SocketChannel,
             println("服务端信息:${socketChannel.remoteAddress}")
 
             try {
-                return TCPClient(socketChannel,cachePath)
+                return TCPClient(socketChannel,cachePath,printReceiveString)
             } catch (e: IOException) {
                 println("连接异常")
                 CloseUtils.close(socketChannel)

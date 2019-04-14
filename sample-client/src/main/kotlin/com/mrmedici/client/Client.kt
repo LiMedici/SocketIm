@@ -19,14 +19,13 @@ import java.util.concurrent.TimeUnit
 
 fun main(args: Array<String>) {
     val cachePath = Foo.getCacheDir("client")
+    val info = ClientSearcher.searchServer(10000)?:return
+    println("Server:$info")
 
     IoContext.setup()
             .ioProvider(IoSelectorProvider())
             .scheduler(SchedulerImpl(1))
             .start()
-
-    val info = ClientSearcher.searchServer(10000)
-    println("Server:$info")
 
     if(info != null){
         var tcpClient:TCPClient? = null

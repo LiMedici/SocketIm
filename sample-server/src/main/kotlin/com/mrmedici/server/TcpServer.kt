@@ -342,6 +342,8 @@ class TcpServer(private val port: Int,
 
                     }
                 }
+
+                else -> return false
             }
 
             return true
