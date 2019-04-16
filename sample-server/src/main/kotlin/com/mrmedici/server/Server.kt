@@ -2,6 +2,7 @@ package server
 
 import com.mrmedici.clink.core.IoContext
 import com.mrmedici.clink.impl.IoSelectorProvider
+import com.mrmedici.clink.impl.IoStealingSelectorProvider
 import com.mrmedici.clink.impl.SchedulerImpl
 import com.mrmedici.foo.COMMAND_EXIT
 import com.mrmedici.foo.Foo
@@ -14,7 +15,7 @@ fun main(args: Array<String>) {
     val cachePath = Foo.getCacheDir("server")
 
     IoContext.setup()
-             .ioProvider(IoSelectorProvider())
+             .ioProvider(IoStealingSelectorProvider(1))
              .scheduler(SchedulerImpl(1))
              .start()
 
