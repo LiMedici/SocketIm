@@ -67,9 +67,10 @@ class AsyncSendDispatcher(private val sender: Sender) : SendDispatcher,
 
             if(reader.requestTakePacket()){
                 try {
+                    isSending.set(true)
                     val isSucceed = sender.postSendAsync()
-                    if(isSucceed){
-                        isSending.set(true)
+                    if(!isSucceed){
+                        isSending.set(false)
                     }
                 } catch (e: IOException) {
                     closeAndNotify()

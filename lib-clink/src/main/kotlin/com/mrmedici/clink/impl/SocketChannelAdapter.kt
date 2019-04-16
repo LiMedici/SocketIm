@@ -41,7 +41,10 @@ class SocketChannelAdapter(private val channel: SocketChannel,
 
         // 进行Callback状态监测，监测是否处于自循环状态
         outputCallback.checkAttachNull()
-        return ioProvider.registerOutput(channel, outputCallback)
+        // 当前发送的数据附加到回调中
+        // return ioProvider.registerOutput(channel, outputCallback)
+        outputCallback.run()
+        return true
     }
 
     override fun getLastWriteTime(): Long {

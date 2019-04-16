@@ -15,7 +15,7 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 // 不考虑发送消耗，并发量：2000*4/400*1000 = 2w/s 算上来回两次数据解析：4w/s
-const val CLIENT_SIZE = 2000
+const val CLIENT_SIZE = 500
 const val SEND_THREAD_SIZE = 4
 const val SEND_THREAD_DELAY = 400L
 

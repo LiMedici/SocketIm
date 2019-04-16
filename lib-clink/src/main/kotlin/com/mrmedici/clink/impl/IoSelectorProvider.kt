@@ -28,9 +28,9 @@ class IoSelectorProvider : IoProvider {
     private val inputCallbackMap = HashMap<SelectionKey, Runnable>()
     private val outputCallbackMap = HashMap<SelectionKey, Runnable>()
 
-    private val inputHandlePool = Executors.newFixedThreadPool(20,
+    private val inputHandlePool = Executors.newFixedThreadPool(4,
             NameableThreadFactory("IoProvider-Input-Thread-"))
-    private val outputHandlePool = Executors.newFixedThreadPool(20,
+    private val outputHandlePool = Executors.newFixedThreadPool(4,
             NameableThreadFactory("IoProvider-Output-Thread-"))
 
     init {
