@@ -5,19 +5,50 @@ import com.mrmedici.clink.utils.CloseUtils
 import java.io.IOException
 import java.nio.channels.*
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.atomic.AtomicLong
+
+const val VALID_OPS = SelectionKey.OP_READ or SelectionKey.OP_WRITE
 
 abstract class StealingSelectorThread(private val selector: Selector) : Thread() {
 
-    private val VALID_OPS = SelectionKey.OP_READ or SelectionKey.OP_WRITE
     // 是否处于运行中
     @Volatile
-    private var isRuning = true
+    private var isRunning = true
     // 已就绪任务队列
     private val readyTaskQueue = LinkedBlockingQueue<IoTask>()
     // 待注册的任务队列
     private val registerTaskQueue = LinkedBlockingQueue<IoTask>()
     // 单次就绪的任务缓存，随后一次性加入到就绪队列中
     private val onceReadyTaskCache = ArrayList<IoTask>()
+
+    // 任务饱和度度量
+    private val saturatingCapacity = AtomicLong()
+    // 用于多线程协同的Service
+    // 可能是单线程池
+    @Volatile
+    private var stealingService: StealingService? = null
+
+    fun setStealingService(stealingService: StealingService){
+        this.stealingService = stealingService
+    }
+
+    fun getReadyTaskQueue():LinkedBlockingQueue<IoTask>{
+        return readyTaskQueue
+    }
+
+    /**
+     * 获取饱和度
+     * 暂时的饱和度量是使用任务执行的次数来定
+     *
+     * @return -1 已失效
+     */
+    fun getSaturatingCapacity():Long{
+        return if(selector.isOpen){
+            saturatingCapacity.get()
+        }else{
+            -1
+        }
+    }
 
     /**
      * 将通道注册到当前的Selector中
@@ -73,7 +104,7 @@ abstract class StealingSelectorThread(private val selector: Selector) : Thread()
         val onceReadyTaskCache = this.onceReadyTaskCache
 
         try {
-            while (isRuning) {
+            while (isRunning) {
                 // 加入待注册的通道
                 consumeRegisterTodoTasks(registerTaskQueue)
 
@@ -200,6 +231,8 @@ abstract class StealingSelectorThread(private val selector: Selector) : Thread()
         // 循环把所有任务做完
         var doTask:IoTask? = readyTaskQueue.poll()
         while (doTask != null){
+            // 增加饱和度
+            saturatingCapacity.incrementAndGet()
             // 做任务
             if(processTask(doTask)){
                 // 做完工作后添加待注册的列表
@@ -209,6 +242,21 @@ abstract class StealingSelectorThread(private val selector: Selector) : Thread()
             // 下个任务
             doTask = readyTaskQueue.poll()
         }
+
+        // 窃取其它的任务
+        val stealingService:StealingService? = this.stealingService
+        if(stealingService != null){
+            doTask = stealingService.steal(readyTaskQueue)
+            while (doTask != null){
+                saturatingCapacity.incrementAndGet()
+                if(processTask(doTask)){
+                    registerTaskQueue.offer(doTask)
+                }
+
+                doTask = stealingService.steal(readyTaskQueue)
+            }
+        }
+
     }
 
     /**
@@ -220,7 +268,7 @@ abstract class StealingSelectorThread(private val selector: Selector) : Thread()
     abstract fun processTask(task: IoTask): Boolean
 
     fun exit() {
-        isRuning = false
+        isRunning = false
         CloseUtils.close(selector)
         interrupt()
     }

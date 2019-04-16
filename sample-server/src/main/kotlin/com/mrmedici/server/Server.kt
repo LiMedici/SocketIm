@@ -15,7 +15,7 @@ fun main(args: Array<String>) {
     val cachePath = Foo.getCacheDir("server")
 
     IoContext.setup()
-             .ioProvider(IoStealingSelectorProvider(1))
+             .ioProvider(IoStealingSelectorProvider(3))
              .scheduler(SchedulerImpl(1))
              .start()
 
