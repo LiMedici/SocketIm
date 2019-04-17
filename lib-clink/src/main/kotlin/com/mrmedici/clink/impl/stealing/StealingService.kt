@@ -1,6 +1,8 @@
 package com.mrmedici.clink.impl.stealing
 
+import com.mrmedici.clink.core.IoTask
 import com.mrmedici.clink.impl.IoStealingSelectorProvider
+import java.util.*
 import java.util.concurrent.LinkedBlockingQueue
 
 class StealingService(private val threads:Array<IoStealingSelectorProvider.IoStealingThread>,
@@ -9,7 +11,7 @@ class StealingService(private val threads:Array<IoStealingSelectorProvider.IoSte
     // 结束标志
     @Volatile
     private var isTerminated = false
-    private var queues:Array<LinkedBlockingQueue<IoTask>> = threads.map(StealingSelectorThread::getReadyTaskQueue).toTypedArray()
+    private var queues:Array<Queue<IoTask>> = threads.map(StealingSelectorThread::getReadyTaskQueue).toTypedArray()
 
 
     /**
@@ -18,7 +20,7 @@ class StealingService(private val threads:Array<IoStealingSelectorProvider.IoSte
      * @param excludeQueue 待排除的队列
      * @return 窃取成功返回的队列，失败返回Null
      */
-    fun steal(excludeQueue:LinkedBlockingQueue<IoTask>):IoTask?{
+    fun steal(excludeQueue:Queue<IoTask>): IoTask?{
         val minSafetyThreshold = this.minSafetyThreshold
         val queues = this.queues
         for (queue in queues){
@@ -28,7 +30,7 @@ class StealingService(private val threads:Array<IoStealingSelectorProvider.IoSte
 
             val size = queue.size
             if(size > minSafetyThreshold){
-                val poll:IoTask? = queue.poll()
+                val poll: IoTask? = queue.poll()
                 if(poll != null){
                     return poll
                 }

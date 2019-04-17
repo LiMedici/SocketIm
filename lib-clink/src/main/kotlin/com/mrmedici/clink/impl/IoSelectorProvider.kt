@@ -54,22 +54,21 @@ class IoSelectorProvider : IoProvider {
         thread.start()
     }
 
+    override fun register(callback: IoProvider.HandleProviderCallback) {
+        var key:SelectionKey? = null
+        if(callback.ops == SelectionKey.OP_READ){
+            key = registerSelection(callback.channel, readSelector, SelectionKey.OP_READ, isRegInput,
+                    inputCallbackMap, callback)
+        }else if(callback.ops == SelectionKey.OP_WRITE){
+            key = registerSelection(callback.channel, writeSelector, SelectionKey.OP_WRITE, isRegOutput,
+                    outputCallbackMap, callback)
+        }
 
-    override fun registerInput(channel: SocketChannel, callback: IoProvider.HandleProviderCallback): Boolean {
-        return registerSelection(channel, readSelector, SelectionKey.OP_READ, isRegInput,
-                inputCallbackMap, callback) != null
+        key?: throw IOException("Register error: channel:${callback.channel} ops:${callback.ops}")
     }
 
-    override fun registerOutput(channel: SocketChannel, callback: IoProvider.HandleProviderCallback): Boolean {
-        return registerSelection(channel, writeSelector, SelectionKey.OP_WRITE, isRegOutput,
-                outputCallbackMap, callback) != null
-    }
-
-    override fun unRegisterInput(channel: SocketChannel) {
+    override fun unRegister(channel: SocketChannel) {
         unRegisterSelection(channel, readSelector, inputCallbackMap,isRegInput)
-    }
-
-    override fun unRegisterOutput(channel: SocketChannel) {
         unRegisterSelection(channel, writeSelector, outputCallbackMap,isRegOutput)
     }
 
@@ -169,7 +168,6 @@ class IoSelectorProvider : IoProvider {
                             map: HashMap<SelectionKey, Runnable>,
                             pool: ExecutorService,
                             locker: AtomicBoolean) {
-            // TODO 重点 疑问：都取消对KeyOps的监听了，为什么还会出现单个消息多分接收的问题。
             // 取消继续对KeyOps的监听
             synchronized(locker) {
                 try {

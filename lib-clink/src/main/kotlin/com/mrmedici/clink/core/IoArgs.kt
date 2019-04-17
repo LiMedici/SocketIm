@@ -171,8 +171,8 @@ interface IoArgsEventProcessor{
     // 提供一个可消费的IoArgs
     fun provideIoArgs():IoArgs?
     // 消费失败的回调
-    fun onConsumerFailed(args:IoArgs?,e:Exception)
+    fun onConsumerFailed(e:Throwable):Boolean
     // 消费成功
-    fun onConsumerCompleted(args:IoArgs)
+    fun onConsumerCompleted(args:IoArgs):Boolean
 
 }

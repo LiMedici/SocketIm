@@ -1,9 +1,11 @@
 package com.mrmedici.clink.impl
 
 import com.mrmedici.clink.core.*
+import com.mrmedici.clink.impl.exceptions.EmptyIoArgsException
 import com.mrmedici.clink.utils.CloseUtils
 import java.io.Closeable
 import java.io.IOException
+import java.nio.channels.SelectionKey
 import java.nio.channels.SocketChannel
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -12,127 +14,73 @@ class SocketChannelAdapter(private val channel: SocketChannel,
                            private val listener: OnChannelStatusChangedListener) : Sender, Receiver, Closeable {
 
     private val isClosed = AtomicBoolean(false)
-
-    private var receiveIoEventProcessor: IoArgsEventProcessor? = null
-    private var sendIoEventLisProcessor: IoArgsEventProcessor? = null
-
-    @Volatile
-    private var lastReadTime = System.currentTimeMillis()
-    @Volatile
-    private var lastWriteTime = System.currentTimeMillis()
-
-    init {
-        channel.configureBlocking(false)
-    }
+    private val inputCallback = InputProviderCallback(ioProvider,channel,SelectionKey.OP_READ)
+    private val outputCallback = OutputProviderCallback(ioProvider,channel,SelectionKey.OP_WRITE)
 
     override fun setReceiveListener(processor: IoArgsEventProcessor?) {
-        this.receiveIoEventProcessor = processor
+        this.inputCallback.eventProcessor = processor
     }
 
     override fun setSendListener(processor: IoArgsEventProcessor?) {
-        this.sendIoEventLisProcessor = processor
+        this.outputCallback.eventProcessor = processor
     }
 
-    @Throws(IOException::class)
-    override fun postSendAsync(): Boolean {
-        if (isClosed.get()) {
+    @Throws(Exception::class)
+    override fun postSendAsync() {
+        if (isClosed.get() || !channel.isOpen) {
             throw IOException("Current channel is closed")
         }
 
         // 进行Callback状态监测，监测是否处于自循环状态
         outputCallback.checkAttachNull()
         // 当前发送的数据附加到回调中
-        // return ioProvider.registerOutput(channel, outputCallback)
-        outputCallback.run()
-        return true
+        ioProvider.register(outputCallback)
     }
 
     override fun getLastWriteTime(): Long {
-        return lastWriteTime
+        return outputCallback.lastActiveTime
     }
 
-    @Throws(IOException::class)
-    override fun postReceiveAsync(): Boolean {
+    @Throws(Exception::class)
+    override fun postReceiveAsync() {
         if (isClosed.get()) {
             throw IOException("Current channel is closed")
         }
 
         // 进行Callback状态监测，监测是否处于自循环状态
         inputCallback.checkAttachNull()
-        return ioProvider.registerInput(channel, inputCallback)
+        return ioProvider.register(inputCallback)
     }
 
     override fun getLastReadTime():Long {
-        return lastReadTime
+        return inputCallback.lastActiveTime
     }
 
     override fun close() {
         if (isClosed.compareAndSet(false, true)) {
-            ioProvider.unRegisterInput(channel)
-            ioProvider.unRegisterOutput(channel)
+            ioProvider.unRegister(channel)
 
             CloseUtils.close(channel)
             listener.onChannelClosed(channel)
         }
     }
 
+    abstract inner class AbsProviderCallback(ioProvider: IoProvider,
+                                             channel: SocketChannel,
+                                             ops:Int) : IoProvider.HandleProviderCallback(ioProvider,channel,ops){
 
-    private val inputCallback: IoProvider.HandleProviderCallback = object : IoProvider.HandleProviderCallback() {
+        var eventProcessor:IoArgsEventProcessor? = null
+        @Volatile
+        var lastActiveTime:Long = System.currentTimeMillis()
 
-        @Throws(IOException::class)
-        override fun onProviderIo(args: IoArgs?) {
+        override fun onProviderIo(args: IoArgs?): Boolean {
             if (isClosed.get()) {
-                return
+                return false
             }
 
-            lastReadTime = System.currentTimeMillis()
+            val processor = this.eventProcessor?:return false
 
-            val processor = this@SocketChannelAdapter.receiveIoEventProcessor ?: return
-
-            var ioArgs:IoArgs? = args
-            if(ioArgs == null){
-                ioArgs = processor.provideIoArgs()
-            }
-
-            try {
-                // 具体的读取操作
-                if(ioArgs == null){
-                    processor.onConsumerFailed(null, IOException("ProvideIoArgs is null."))
-                }else{
-                    val count = ioArgs.readFrom(channel)
-                    if (count == 0) {
-                        println("Current read zero data!")
-                    }
-
-                    if (ioArgs.remained() && ioArgs.isNeedConsumeRemaining()) {
-                        // 附加当前未消费完成的args
-                        attach = ioArgs
-                        // 再次注册数据发送
-                        ioProvider.registerInput(channel, this)
-                    } else {
-                        // 设置为null
-                        attach = null
-                        // 输出完成回调
-                        processor.onConsumerCompleted(ioArgs)
-                    }
-                }
-            } catch (ignored: IOException) {
-                CloseUtils.close(this@SocketChannelAdapter)
-            }
-        }
-    }
-
-    private val outputCallback: IoProvider.HandleProviderCallback = object : IoProvider.HandleProviderCallback() {
-
-        @Throws(IOException::class)
-        override fun onProviderIo(args: IoArgs?) {
-            if (isClosed.get()) {
-                return
-            }
-
-            lastWriteTime = System.currentTimeMillis()
-
-            val processor = this@SocketChannelAdapter.sendIoEventLisProcessor?:return
+            lastActiveTime = System.currentTimeMillis()
 
             var ioArgs:IoArgs? = args
             if(ioArgs == null) {
@@ -143,28 +91,57 @@ class SocketChannelAdapter(private val channel: SocketChannel,
             try {
                 // 具体的写入操作
                 if (ioArgs == null) {
-                    processor.onConsumerFailed(null, IOException("ProvideIoArgs is null."))
-                } else {
-                    val count = ioArgs.writeTo(channel)
-                    if (count == 0) {
-                        println("Current write zero data!")
-                    }
-
-                    if (ioArgs.remained() && ioArgs.isNeedConsumeRemaining()) {
-                        // 附加当前未消费完成的args
-                        attach = ioArgs
-                        // 再次注册数据发送
-                        ioProvider.registerOutput(channel, this)
-                    } else {
-                        // 设置为null
-                        attach = null
-                        // 输出完成回调
-                        processor.onConsumerCompleted(ioArgs)
-                    }
+                    throw EmptyIoArgsException("ProvideIoArgs is null.")
                 }
-            } catch (ignored: IOException) {
+
+                val count = consumeIoArgs(ioArgs,channel)
+
+                return if (ioArgs.remained() && (count ==0 || ioArgs.isNeedConsumeRemaining())) {
+                    // 附加当前未消费完成的args
+                    attach = ioArgs
+                    // 再次注册数据发送
+                    true
+                } else {
+                    // 输出完成回调
+                    processor.onConsumerCompleted(ioArgs)
+                }
+            } catch (e: IOException) {
+                if(processor.onConsumerFailed(e)){
+                    CloseUtils.close(this@SocketChannelAdapter)
+                }
+
+                return false
+            }
+
+            return false
+        }
+
+        @Throws(IOException::class)
+        abstract fun consumeIoArgs(args:IoArgs, channel: SocketChannel):Int
+
+        override fun fireThrowable(e: Throwable) {
+            val processor:IoArgsEventProcessor? = eventProcessor
+            if(processor == null || processor.onConsumerFailed(e)){
                 CloseUtils.close(this@SocketChannelAdapter)
             }
+        }
+    }
+
+    inner class InputProviderCallback(ioProvider: IoProvider,
+                                      channel: SocketChannel,
+                                      ops:Int) : AbsProviderCallback(ioProvider,channel,ops){
+        @Throws(IOException::class)
+        override fun consumeIoArgs(args: IoArgs, channel: SocketChannel): Int {
+            return args.readFrom(channel)
+        }
+    }
+
+    inner class OutputProviderCallback(ioProvider: IoProvider,
+                                      channel: SocketChannel,
+                                      ops:Int) : AbsProviderCallback(ioProvider,channel,ops){
+        @Throws(IOException::class)
+        override fun consumeIoArgs(args: IoArgs, channel: SocketChannel): Int {
+            return args.writeTo(channel)
         }
     }
 }

@@ -1,13 +1,21 @@
 package com.mrmedici.clink.impl.stealing
 
-import com.mrmedici.clink.core.IoProvider
+import com.mrmedici.clink.core.IoTask
 import com.mrmedici.clink.utils.CloseUtils
 import java.io.IOException
 import java.nio.channels.*
-import java.util.concurrent.LinkedBlockingQueue
+import java.util.*
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import javax.print.attribute.standard.NumberUp
+import kotlin.collections.ArrayList
 
 const val VALID_OPS = SelectionKey.OP_READ or SelectionKey.OP_WRITE
+const val MAX_ONCE_READ_TASK = 128
+const val MAX_ONCE_WRITE_TASK = 128
+const val MAX_ONCE_RUN_TASK = MAX_ONCE_READ_TASK + MAX_ONCE_WRITE_TASK
 
 abstract class StealingSelectorThread(private val selector: Selector) : Thread() {
 
@@ -15,14 +23,14 @@ abstract class StealingSelectorThread(private val selector: Selector) : Thread()
     @Volatile
     private var isRunning = true
     // 已就绪任务队列
-    private val readyTaskQueue = LinkedBlockingQueue<IoTask>()
+    private val readyTaskQueue = ArrayBlockingQueue<IoTask>(MAX_ONCE_RUN_TASK)
     // 待注册的任务队列
-    private val registerTaskQueue = LinkedBlockingQueue<IoTask>()
-    // 单次就绪的任务缓存，随后一次性加入到就绪队列中
-    private val onceReadyTaskCache = ArrayList<IoTask>()
+    private val registerTaskQueue = ConcurrentLinkedQueue<IoTask>()
 
     // 任务饱和度度量
     private val saturatingCapacity = AtomicLong()
+    private val unregisterLocker = AtomicBoolean(false)
+
     // 用于多线程协同的Service
     // 可能是单线程池
     @Volatile
@@ -32,7 +40,7 @@ abstract class StealingSelectorThread(private val selector: Selector) : Thread()
         this.stealingService = stealingService
     }
 
-    fun getReadyTaskQueue():LinkedBlockingQueue<IoTask>{
+    fun getReadyTaskQueue():Queue<IoTask>{
         return readyTaskQueue
     }
 
@@ -52,20 +60,15 @@ abstract class StealingSelectorThread(private val selector: Selector) : Thread()
 
     /**
      * 将通道注册到当前的Selector中
-     * @param channel 通道
-     * @param ops 关注的行为
-     * @param callback 触发时的回调
-     * @return 是否注册成功
      */
-    fun register(channel: SocketChannel, ops: Int, callback: IoProvider.HandleProviderCallback): Boolean {
-        return when {
-            channel.isOpen -> {
-                val ioTask = IoTask(channel, ops, callback)
-                registerTaskQueue.offer(ioTask)
-                true
-            }
-            else -> false
+    @Throws(UnsupportedOperationException::class)
+    fun register(task: IoTask) {
+        if(task.ops and (VALID_OPS.inv()) != 0){
+            throw UnsupportedOperationException("Unsupported register ops:${task.ops}")
         }
+
+        registerTaskQueue.offer(task)
+        selector.wakeup()
     }
 
 
@@ -79,9 +82,17 @@ abstract class StealingSelectorThread(private val selector: Selector) : Thread()
         selectorKey?.attachment()?.let {
             // 关闭前可使用Attach简单判断是否已处于队列中
             selectorKey.attach(null)
-            // 添加取消操作
-            val ioTask = IoTask(channel, 0, null)
-            registerTaskQueue.offer(ioTask)
+
+            if(Thread.currentThread() === this){
+                selectorKey.cancel()
+            }else{
+                synchronized(unregisterLocker){
+                    unregisterLocker.set(true)
+                    selector.wakeup()
+                    selectorKey.cancel()
+                    unregisterLocker.set(false)
+                }
+            }
         }
     }
 
@@ -91,7 +102,7 @@ abstract class StealingSelectorThread(private val selector: Selector) : Thread()
      * @param readyTaskQueue 总任务队列
      * @param onceReadyTaskCache 单次待执行的任务
      */
-    private fun joinTaskQueue(readyTaskQueue: LinkedBlockingQueue<IoTask>, onceReadyTaskCache: List<IoTask>) {
+    private fun joinTaskQueue(readyTaskQueue: Queue<IoTask>, onceReadyTaskCache: List<IoTask>) {
         readyTaskQueue.addAll(onceReadyTaskCache)
     }
 
@@ -101,16 +112,22 @@ abstract class StealingSelectorThread(private val selector: Selector) : Thread()
         val selector = this.selector
         val readyTaskQueue = this.readyTaskQueue
         val registerTaskQueue = this.registerTaskQueue
-        val onceReadyTaskCache = this.onceReadyTaskCache
+        val unregisterLocker = this.unregisterLocker
+        val onceReadyReadTaskCache = ArrayList<IoTask>(MAX_ONCE_READ_TASK)
+        val onceReadyWriteTaskCache = ArrayList<IoTask>(MAX_ONCE_WRITE_TASK)
 
         try {
             while (isRunning) {
                 // 加入待注册的通道
                 consumeRegisterTodoTasks(registerTaskQueue)
 
-                // 检查一次
-                if (selector.selectNow() == 0) {
+                val count = selector.select()
+
+                while (unregisterLocker.get()){
                     Thread.yield()
+                }
+
+                if(count == 0){
                     continue
                 }
 
@@ -118,6 +135,9 @@ abstract class StealingSelectorThread(private val selector: Selector) : Thread()
                 // 处理已就绪的任务
                 val selectedKeys = selector.selectedKeys()
                 val iterator = selectedKeys.iterator()
+
+                var onceReadTaskCount = MAX_ONCE_READ_TASK
+                var onceWriteTaskCount = MAX_ONCE_WRITE_TASK
 
                 // 迭代已就绪的任务
                 while (iterator.hasNext()) {
@@ -131,23 +151,30 @@ abstract class StealingSelectorThread(private val selector: Selector) : Thread()
                             var interestOps = selectionKey.interestOps()
 
                             // 是否可读
-                            if ((readyOps and SelectionKey.OP_READ) != 0) {
-                                onceReadyTaskCache.add(attachment.taskForReadable!!)
+                            if ((readyOps and SelectionKey.OP_READ) != 0 && onceReadTaskCount-- > 0) {
+                                onceReadyReadTaskCache.add(attachment.taskForReadable!!)
                                 interestOps = interestOps and (SelectionKey.OP_READ.inv())
                             }
 
                             // 是否可写
-                            if ((readyOps and SelectionKey.OP_WRITE) != 0) {
-                                onceReadyTaskCache.add(attachment.taskForWritable!!)
+                            if ((readyOps and SelectionKey.OP_WRITE) != 0 && onceWriteTaskCount-- > 0) {
+                                onceReadyWriteTaskCache.add(attachment.taskForWritable!!)
                                 interestOps = interestOps and (SelectionKey.OP_WRITE.inv())
                             }
+
+                            // TODO 通过 onceReadTaskCount + onceWriteTaskCount 致使已经就绪的任务并没有即时的读取 会不会在下次Select的时候丢失
 
                             // 取消已就绪的关注
                             selectionKey.interestOps(interestOps)
                         } catch (ignored: CancelledKeyException) {
                             // 当前连接被取消，断开时直接移除相关任务
-                            onceReadyTaskCache.remove(attachment.taskForReadable)
-                            onceReadyTaskCache.remove(attachment.taskForWritable)
+                            if(attachment.taskForReadable != null){
+                                onceReadyReadTaskCache.remove(attachment.taskForReadable!!)
+                            }
+
+                            if(attachment.taskForWritable != null){
+                                onceReadyWriteTaskCache.remove(attachment.taskForWritable!!)
+                            }
                         }
                     }
 
@@ -155,10 +182,17 @@ abstract class StealingSelectorThread(private val selector: Selector) : Thread()
                 }
 
                 // 判断本次是否有待执行的任务
-                if (!onceReadyTaskCache.isEmpty()) {
+                if (!onceReadyReadTaskCache.isEmpty()) {
                     // 加入到总队列中
-                    joinTaskQueue(readyTaskQueue, onceReadyTaskCache)
-                    onceReadyTaskCache.clear()
+                    joinTaskQueue(readyTaskQueue, onceReadyReadTaskCache)
+                    onceReadyReadTaskCache.clear()
+                }
+
+                // 判断本次是否有待执行的任务
+                if (!onceReadyWriteTaskCache.isEmpty()) {
+                    // 加入到总队列中
+                    joinTaskQueue(readyTaskQueue, onceReadyWriteTaskCache)
+                    onceReadyWriteTaskCache.clear()
                 }
 
                 // 消费总队列的任务
@@ -171,7 +205,6 @@ abstract class StealingSelectorThread(private val selector: Selector) : Thread()
         } finally {
             readyTaskQueue.clear()
             registerTaskQueue.clear()
-            onceReadyTaskCache.clear()
         }
     }
 
@@ -180,7 +213,7 @@ abstract class StealingSelectorThread(private val selector: Selector) : Thread()
      *
      * @param registerTaskQueue 待注册的通道
      */
-    private fun consumeRegisterTodoTasks(registerTaskQueue: LinkedBlockingQueue<IoTask>) {
+    private fun consumeRegisterTodoTasks(registerTaskQueue: Queue<IoTask>) {
         val selector = this.selector
         var registerTask = registerTaskQueue.poll()
 
@@ -188,32 +221,28 @@ abstract class StealingSelectorThread(private val selector: Selector) : Thread()
             try {
                 val channel = registerTask.channel
                 val ops = registerTask.ops
-                if (ops == 0) {
-                    // Cancel
-                    val key: SelectionKey? = channel.keyFor(selector)
-                    key?.cancel()
-                } else if (ops and VALID_OPS.inv() == 0) {
-                    var key: SelectionKey? = channel.keyFor(selector)
-                    if (key == null) {
-                        key = channel.register(selector, ops, KeyAttachment())
-                    } else {
-                        key.interestOps(key.interestOps() or ops)
-                    }
 
-                    val attachment = key!!.attachment()
-                    if (attachment is KeyAttachment) {
-                        attachment.attach(ops, registerTask)
-                    } else {
-                        // 外部关闭，直接取消
-                        key.cancel()
-                    }
+                var key: SelectionKey? = channel.keyFor(selector)
+
+                if (key == null) {
+                    key = channel.register(selector, ops, KeyAttachment())
+                } else {
+                    key.interestOps(key.interestOps() or ops)
                 }
-            } catch (ignored: ClosedChannelException) {
 
-            } catch (ignored: CancelledKeyException) {
-
-            } catch (ignored: ClosedSelectorException) {
-
+                val attachment = key!!.attachment()
+                if (attachment is KeyAttachment) {
+                    attachment.attach(ops, registerTask)
+                } else {
+                    // 外部关闭，直接取消
+                    key.cancel()
+                }
+            } catch (e: ClosedChannelException) {
+                registerTask.fireThrowable(e)
+            } catch (e: CancelledKeyException) {
+                registerTask.fireThrowable(e)
+            } catch (e: ClosedSelectorException) {
+                registerTask.fireThrowable(e)
             } finally {
                 registerTask = registerTaskQueue.poll()
             }
@@ -226,10 +255,10 @@ abstract class StealingSelectorThread(private val selector: Selector) : Thread()
     /**
      * 消费待完成的任务
      */
-    private fun consumeTodoTasks(readyTaskQueue: LinkedBlockingQueue<IoTask>,
-                                 registerTaskQueue: LinkedBlockingQueue<IoTask>) {
+    private fun consumeTodoTasks(readyTaskQueue: Queue<IoTask>,
+                                 registerTaskQueue: ConcurrentLinkedQueue<IoTask>) {
         // 循环把所有任务做完
-        var doTask:IoTask? = readyTaskQueue.poll()
+        var doTask: IoTask? = readyTaskQueue.poll()
         while (doTask != null){
             // 增加饱和度
             saturatingCapacity.incrementAndGet()

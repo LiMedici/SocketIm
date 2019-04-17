@@ -1,24 +1,45 @@
 package com.mrmedici.clink.core
 
 import java.io.Closeable
+import java.io.IOException
 import java.nio.channels.SocketChannel
 
 interface IoProvider : Closeable{
-    fun registerInput(channel: SocketChannel,callback: HandleProviderCallback):Boolean
-    fun registerOutput(channel: SocketChannel,callback: HandleProviderCallback):Boolean
-    fun unRegisterInput(channel: SocketChannel)
-    fun unRegisterOutput(channel: SocketChannel)
+    @Throws(Exception::class)
+    fun register(callback: HandleProviderCallback)
+    fun unRegister(channel: SocketChannel)
 
-    abstract class HandleProviderCallback : Runnable{
+    abstract class HandleProviderCallback(private val ioProvider: IoProvider,
+                                          channel: SocketChannel,ops:Int)
+        : IoTask(channel,ops),Runnable{
+
+        override fun onProcessIo(): Boolean {
+            val attach = this.attach
+            this.attach = null
+            return onProviderIo(attach)
+        }
+
+        override fun fireThrowable(e: Throwable) {
+
+        }
 
         @Volatile
         protected var attach:IoArgs? = null
 
         override fun run() {
-            onProviderIo(attach)
+            val attach = this.attach
+            this.attach = null
+            if(onProviderIo(attach)){
+                try{
+                    ioProvider.register(this)
+                }catch (e:Exception){
+                    fireThrowable(e)
+                }
+            }
         }
 
-        abstract fun onProviderIo(args:IoArgs?)
+        @Throws(IOException::class)
+        abstract fun onProviderIo(args:IoArgs?):Boolean
 
         @Throws(IllegalStateException::class)
         fun checkAttachNull() {

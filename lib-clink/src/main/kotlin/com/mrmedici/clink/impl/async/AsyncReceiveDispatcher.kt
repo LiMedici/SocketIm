@@ -27,24 +27,21 @@ class AsyncReceiveDispatcher(private val receiver:Receiver,
     }
 
     override fun stop() {
-
+        receiver.setReceiveListener(null)
     }
 
     override fun close() {
         if(isClosed.compareAndSet(false,true)){
+            receiver.setReceiveListener(null)
             CloseUtils.close(writer)
         }
-    }
-
-    private fun closeAndNotify(){
-        CloseUtils.close(this)
     }
 
     private fun registerReceive(){
         try {
             receiver.postReceiveAsync()
-        }catch (e:IOException){
-            closeAndNotify()
+        }catch (e:Exception){
+            CloseUtils.close(this)
         }
     }
 
@@ -55,21 +52,22 @@ class AsyncReceiveDispatcher(private val receiver:Receiver,
         return ioArgs
     }
 
-    override fun onConsumerFailed(args: IoArgs?, e: Exception) {
-        e.printStackTrace()
+    override fun onConsumerFailed(e: Throwable):Boolean {
+        CloseUtils.close(this)
+        return true
     }
 
-    override fun onConsumerCompleted(args: IoArgs) {
-        if(isClosed.get()){
-            return
-        }
+    override fun onConsumerCompleted(args: IoArgs):Boolean {
+        val isClosed = this.isClosed
+        val writer = this.writer
 
         args.finishWriting()
 
         do{
             writer.consumeIoArgs(args)
         }while (args.remained() && !isClosed.get())
-        registerReceive()
+
+        return !isClosed.get()
     }
 
     override fun taskPacket(type: Byte, length: Long, headerInfo: ByteArray?): ReceivePacket<*, *> {

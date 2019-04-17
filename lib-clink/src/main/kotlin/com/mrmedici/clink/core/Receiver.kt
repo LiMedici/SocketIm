@@ -7,8 +7,8 @@ interface Receiver : Closeable{
 
     fun setReceiveListener(processor: IoArgsEventProcessor?)
 
-    @Throws(IOException::class)
-    fun postReceiveAsync():Boolean
+    @Throws(Exception::class)
+    fun postReceiveAsync()
 
     fun getLastReadTime():Long
 }

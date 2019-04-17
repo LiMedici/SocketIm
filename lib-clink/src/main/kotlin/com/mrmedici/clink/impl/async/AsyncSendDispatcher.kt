@@ -1,15 +1,17 @@
 package com.mrmedici.clink.impl.async
 
 import com.mrmedici.clink.core.*
+import com.mrmedici.clink.impl.exceptions.EmptyIoArgsException
 import com.mrmedici.clink.utils.CloseUtils
 import java.io.IOException
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 
 class AsyncSendDispatcher(private val sender: Sender) : SendDispatcher,
         IoArgsEventProcessor, AsyncPacketReader.PacketProvider {
 
-    private val queue = ConcurrentLinkedQueue<SendPacket<*>>()
+    private val queue = ArrayBlockingQueue<SendPacket<*>>(16)
     private val isSending = AtomicBoolean(false)
     private val isClosed = AtomicBoolean(false)
 
@@ -20,12 +22,16 @@ class AsyncSendDispatcher(private val sender: Sender) : SendDispatcher,
     }
 
     override fun send(packet: SendPacket<*>) {
-        queue.offer(packet)
-        requestSend()
+        try {
+            queue.put(packet)
+            requestSend()
+        }catch (e:InterruptedException){
+            e.printStackTrace()
+        }
     }
 
     override fun sendHeartbeat() {
-        if(queue.size > 0){
+        if(!queue.isEmpty()){
             return
         }
 
@@ -59,29 +65,30 @@ class AsyncSendDispatcher(private val sender: Sender) : SendDispatcher,
         CloseUtils.close(packet)
     }
 
-    private fun requestSend() {
+    private fun requestSend(callFromIoConsume:Boolean = false) {
         synchronized(isSending){
-            if(isSending.get().or(isClosed.get())){
+            val isRegisterSending = this.isSending
+            val oldState = isRegisterSending.get()
+            if(isClosed.get() || (oldState && !callFromIoConsume)){
                 return
+            }
+
+            if(callFromIoConsume && !oldState){
+                throw IllegalStateException("Call from IoConsume, current state should in sending!")
             }
 
             if(reader.requestTakePacket()){
                 try {
-                    isSending.set(true)
-                    val isSucceed = sender.postSendAsync()
-                    if(!isSucceed){
-                        isSending.set(false)
-                    }
-                } catch (e: IOException) {
-                    closeAndNotify()
+                    isRegisterSending.set(true)
+                    sender.postSendAsync()
+                }catch (e:Exception){
+                    e.printStackTrace()
+                    CloseUtils.close(this)
                 }
+            }else{
+                isRegisterSending.set(false)
             }
         }
-    }
-
-
-    private fun closeAndNotify() {
-        CloseUtils.close(this)
     }
 
     override fun close() {
@@ -102,23 +109,30 @@ class AsyncSendDispatcher(private val sender: Sender) : SendDispatcher,
         else reader.fillData()
     }
 
-    override fun onConsumerFailed(args: IoArgs?, e: Exception) {
-        e.printStackTrace()
-        synchronized(isSending){
-            isSending.set(false)
+    override fun onConsumerFailed(e: Throwable):Boolean {
+        return if(e is EmptyIoArgsException){
+            // 继续请求发送当前的数据
+            requestSend(true)
+            false
+        }else{
+            CloseUtils.close(this)
+            true
         }
-
-        // 继续请求发送当前的数据
-        requestSend()
     }
 
-    override fun onConsumerCompleted(args: IoArgs) {
+    override fun onConsumerCompleted(args: IoArgs):Boolean {
         // 继续发送当前包
         synchronized(isSending){
-            isSending.set(false)
-        }
+            val isRegisterSending = this.isSending
+            val isRunning = !isClosed.get()
+            if(!isRegisterSending.get() && isRunning){
+                throw IllegalStateException("Call from IoConsume, current state should in sending!")
+            }
 
-        // 继续请求发送当前的数据
-        requestSend()
+            // TODO 这里有疑问，可能是一个Packet或一个Frame只消费一个Args,未消费完成
+            isRegisterSending.set(isRunning && reader.requestTakePacket())
+
+            return isRegisterSending.get()
+        }
     }
 }

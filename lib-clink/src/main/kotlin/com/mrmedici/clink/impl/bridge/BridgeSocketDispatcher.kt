@@ -1,6 +1,7 @@
 package com.mrmedici.clink.impl.bridge
 
 import com.mrmedici.clink.core.*
+import com.mrmedici.clink.impl.exceptions.EmptyIoArgsException
 import com.mrmedici.clink.utils.plugin.CircularByteBuffer
 import java.io.IOException
 import java.nio.channels.Channels
@@ -44,18 +45,21 @@ class BridgeSocketDispatcher(private val receiver: Receiver) : SendDispatcher, R
     private fun requestSend() {
         synchronized(isSending) {
             val sender = this.sender
+            val isRegisterSending = this.isSending
+
             if (isSending.get() || sender == null) return
 
             // 返回True代表有数据需要发送
             if (mBuffer.available > 0) {
                 try {
-                    val isSucceed = sender.postSendAsync()
-                    if (isSucceed) {
-                        isSending.set(true)
-                    }
+                    isRegisterSending.set(true)
+                    sender.postSendAsync()
                 } catch (e: IOException) {
                     e.printStackTrace()
+                    isRegisterSending.set(false)
                 }
+            }else{
+                isRegisterSending.set(false)
             }
         }
     }
@@ -69,7 +73,7 @@ class BridgeSocketDispatcher(private val receiver: Receiver) : SendDispatcher, R
     private fun registerReceive() {
         try {
             receiver.postReceiveAsync()
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             e.printStackTrace()
         }
     }
@@ -98,21 +102,22 @@ class BridgeSocketDispatcher(private val receiver: Receiver) : SendDispatcher, R
             return receiveIoArgs
         }
 
-        override fun onConsumerFailed(args: IoArgs?, e: Exception) {
-            e.printStackTrace()
+        override fun onConsumerFailed(e: Throwable):Boolean {
+            RuntimeException(e).printStackTrace()
+            return true
         }
 
-        override fun onConsumerCompleted(args: IoArgs) {
+        override fun onConsumerCompleted(args: IoArgs):Boolean {
             args.finishWriting()
-            try {
+            return try {
                 args.readTo(writableByteChannel)
+                // 接收数据后请求发送数据
+                requestSend()
+                true
             } catch (e: IOException) {
                 e.printStackTrace()
+                false
             }
-
-            registerReceive()
-            // 接收数据后请求发送数据
-            requestSend()
         }
     }
 
@@ -134,23 +139,30 @@ class BridgeSocketDispatcher(private val receiver: Receiver) : SendDispatcher, R
             return null
         }
 
-        override fun onConsumerFailed(args: IoArgs?, e: Exception) {
-            e.printStackTrace()
-            // 设置当前发送状态
-            synchronized(isSending){
-                isSending.set(false)
+        override fun onConsumerFailed(e: Throwable):Boolean {
+            if(e is EmptyIoArgsException){
+                // 设置当前发送状态
+                synchronized(isSending){
+                    isSending.set(false)
+                    // 继续请求发送当前的数据
+                    requestSend()
+                    return false
+                }
             }
-            // 继续请求发送当前的数据
-            requestSend()
+
+            return true
         }
 
-        override fun onConsumerCompleted(args: IoArgs) {
+        override fun onConsumerCompleted(args: IoArgs):Boolean {
+            if(mBuffer.available > 0) return true
+
             // 设置当前发送状态
             synchronized(isSending){
                 isSending.set(false)
+                // 继续请求发送当前的数据
+                requestSend()
             }
-            // 继续请求发送当前的数据
-            requestSend()
+            return false
         }
     }
 }

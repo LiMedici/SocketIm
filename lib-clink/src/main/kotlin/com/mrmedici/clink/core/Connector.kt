@@ -11,6 +11,7 @@ import java.io.Closeable
 import java.io.File
 import java.io.IOException
 import java.io.OutputStream
+import java.net.StandardSocketOptions
 import java.nio.channels.SocketChannel
 import java.util.*
 
@@ -27,6 +28,14 @@ abstract class Connector : OnChannelStatusChangedListener, Closeable {
     @Throws(IOException::class)
     fun setup(socketChannel: SocketChannel) {
         this.channel = socketChannel
+
+        socketChannel.configureBlocking(false)
+        socketChannel.socket().soTimeout = 1000
+        socketChannel.socket().setPerformancePreferences(1,3,3)
+        socketChannel.setOption(StandardSocketOptions.SO_RCVBUF,16 * 1024)
+        socketChannel.setOption(StandardSocketOptions.SO_SNDBUF,16 * 1024)
+        socketChannel.setOption(StandardSocketOptions.SO_KEEPALIVE,true)
+        socketChannel.setOption(StandardSocketOptions.SO_REUSEADDR,true)
 
         val context: IoContext? = IoContext.get()
         val adapter = SocketChannelAdapter(channel, context!!.ioProvider!!, this)

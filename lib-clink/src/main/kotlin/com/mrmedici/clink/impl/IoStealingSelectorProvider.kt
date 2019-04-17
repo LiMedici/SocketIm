@@ -1,13 +1,13 @@
 package com.mrmedici.clink.impl
 
 import com.mrmedici.clink.core.IoProvider
-import com.mrmedici.clink.impl.stealing.IoTask
+import com.mrmedici.clink.core.IoTask
 import com.mrmedici.clink.impl.stealing.StealingSelectorThread
 import com.mrmedici.clink.impl.stealing.StealingService
+import java.io.IOException
 import java.nio.channels.SelectionKey
 import java.nio.channels.Selector
 import java.nio.channels.SocketChannel
-import kotlin.concurrent.thread
 
 class IoStealingSelectorProvider : IoProvider{
 
@@ -25,6 +25,8 @@ class IoStealingSelectorProvider : IoProvider{
         val stealingService = StealingService(threads,10)
         for (thread in threads){
             thread.setStealingService(stealingService)
+            thread.isDaemon = false
+            thread.priority = Thread.MAX_PRIORITY
             thread.start()
         }
 
@@ -32,24 +34,17 @@ class IoStealingSelectorProvider : IoProvider{
         this.stealingService = stealingService
     }
 
-    override fun registerInput(channel: SocketChannel, callback: IoProvider.HandleProviderCallback): Boolean {
+    override fun register(callback: IoProvider.HandleProviderCallback) {
         val thread:StealingSelectorThread? = this.stealingService.getNotBusyThread()
-        return thread?.register(channel,SelectionKey.OP_READ,callback)?:false
+        thread?:throw IOException("IoStealingSelectorProvider is shutdown!")
+        thread.register(callback)
     }
 
-    override fun registerOutput(channel: SocketChannel, callback: IoProvider.HandleProviderCallback): Boolean {
-        val thread:StealingSelectorThread? = this.stealingService.getNotBusyThread()
-        return thread?.register(channel,SelectionKey.OP_WRITE,callback)?:false
-    }
-
-    override fun unRegisterInput(channel: SocketChannel) {
+    override fun unRegister(channel: SocketChannel) {
+        if(!channel.isOpen) return
         threads.forEach {
             it.unregister(channel)
         }
-    }
-
-    override fun unRegisterOutput(channel: SocketChannel) {
-
     }
 
     override fun close() {
@@ -63,8 +58,7 @@ class IoStealingSelectorProvider : IoProvider{
         }
 
         override fun processTask(task: IoTask): Boolean {
-            task.providerCallback?.run()
-            return false
+            return task.onProcessIo()
         }
     }
 }

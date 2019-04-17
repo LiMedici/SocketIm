@@ -6,8 +6,8 @@ import java.io.IOException
 interface Sender : Closeable{
     fun setSendListener(processor:IoArgsEventProcessor?)
 
-    @Throws(IOException::class)
-    fun postSendAsync():Boolean
+    @Throws(Exception::class)
+    fun postSendAsync()
 
     fun getLastWriteTime():Long
 }
