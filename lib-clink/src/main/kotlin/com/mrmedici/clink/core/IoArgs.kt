@@ -16,7 +16,7 @@ class IoArgs{
 
     constructor():this(256)
 
-    constructor(size:Int):this(size,false)
+    constructor(size:Int):this(size,true)
 
     constructor(size:Int,isNeedConsumeRemaining:Boolean){
         this.limit = size
@@ -63,6 +63,7 @@ class IoArgs{
     fun readTo(channel:WritableByteChannel):Int{
         var bytesProduced = 0
         while (buffer.hasRemaining()){
+            // TODO 桥接模式接收数据会触发BufferUnderflowException
             var len = channel.write(buffer)
             if(len < 0){
                 throw EOFException()
