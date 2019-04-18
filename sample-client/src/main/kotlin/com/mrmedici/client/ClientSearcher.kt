@@ -61,7 +61,7 @@ class ClientSearcher{
             // 回送端口信息
             byteBuffer.putInt(LISTEN_PORT)
             // 直接构建Packet
-            val requestPacket = DatagramPacket(byteBuffer.array(),byteBuffer.position() + 1)
+            val requestPacket = DatagramPacket(byteBuffer.array(),byteBuffer.position())
             // 20000端口，受限广播地址
             requestPacket.address = InetAddress.getByName("255.255.255.255")
             requestPacket.port = UDPConstants.PORT_SERVER
